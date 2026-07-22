@@ -1,0 +1,26 @@
+{
+  "name": "turo",
+  "version": "0.1.0",
+  "description": "Stream editor — prose in, kartographer graph out. Cuts system prompt tokens by replacing verbose text with arrow-chain graphs.",
+  "bin": {
+    "turo": "bin/install.js"
+  },
+  "files": [
+    "bin/",
+    "skills/"
+  ],
+  "keywords": [
+    "llm",
+    "token",
+    "graph",
+    "kartographer",
+    "context-window",
+    "claude-code",
+    "gdeps"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kdeps/turo"
+  },
+  "license": "Apache-2.0"
+}
