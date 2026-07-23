@@ -39,22 +39,22 @@ turo --preamble                   # wrap for system prompt injection
 turo -passes 1                    # single pass (default runs to convergence)
 turo -filler=false                # skip filler deletion
 turo -synonyms=false              # skip the synonym pass (keep words verbatim)
-turo -gloss                       # extra: swap words for their shortest defining word (very lossy)
+turo -gloss=false                 # skip the defining-word swap (less lossy)
 turo --version                    # print version
 ```
 
-`-gloss` (off by default) is an experimental extra stage that replaces each word
-with the shortest same-part-of-speech word from its own dictionary definition
-(`approach` -> `come`). Definitions are prose, not synonyms, so it is much
-lossier than `-synonyms` — use it only when you want maximum compression and
-readability does not matter.
+`-gloss` (on by default) replaces each word with the shortest
+same-part-of-speech word from its own dictionary definition (`approach` ->
+`come`). Definitions are prose, not synonyms, so it is the lossiest stage —
+disable it with `-gloss=false` / `TURO_GLOSS=off` when you need words closer to
+the original.
 
 ## Pipeline
 
-Every run is three stages, each on by default:
+Every run is four stages, each on by default:
 
 ```text
-text -> [1] delete filler -> [2] swap for cheaper synonyms -> [3] reduce to content words
+text -> [1] delete filler -> [2] swap cheaper synonyms -> [3] swap defining words -> [4] reduce to content words
 ```
 
 1. **Filler deletion** removes pleasantries, hedges, and leaders that survive
@@ -63,7 +63,10 @@ text -> [1] delete filler -> [2] swap for cheaper synonyms -> [3] reduce to cont
    `-filler=false` / `TURO_FILLER=off`.
 2. **Synonym swap** replaces words with a fewer-token synonym (see below).
    Disable with `-synonyms=false` / `TURO_SYNONYMS=off`.
-3. **Reduction** drops the remaining stopwords, keeps content words by part of
+3. **Gloss swap** replaces words with the shortest defining word from their
+   dictionary definition — the lossiest stage. Disable with `-gloss=false` /
+   `TURO_GLOSS=off`.
+4. **Reduction** drops the remaining stopwords, keeps content words by part of
    speech, deduplicates, and (ultra) collapses inflections by lemma.
 
 The whole pipeline repeats until the output stops changing (`-passes 0`, the
@@ -157,6 +160,34 @@ Set `TURO_LEVEL=ultra` for maximum compression. `KDEPS_TURO=off` or `TURO_DISABL
 2. Strips articles, prepositions, conjunctions, pronouns (~70 stop words)
 3. Keeps the content words for the level (nouns, verbs, adjectives)
 4. Deduplicates and emits them in reading order — then keeps the result only if it is actually smaller than the input
+
+## turo vs caveman
+
+[caveman](https://github.com/JuliusBrussee/caveman) is a sibling idea with the
+opposite dial. caveman deletes filler with regex (articles, pleasantries,
+hedges) and **keeps readable prose**. turo runs that same filler pass, then
+keeps going — POS-classifying, deduplicating, lemmatizing, and swapping words
+for shorter synonyms and glosses — trading readability for a much smaller token
+count.
+
+Same input, measured with the cl100k tokenizer:
+
+| | output | tokens |
+|--|--------|--------|
+| input | `Please, I think you should really just utilize this approach to demonstrate the functionality of the component.` | 19 |
+| caveman | `You should utilize this approach to demonstrate functionality of component.` | 11 |
+| turo full | `Use come show functionality component` | 5 |
+| turo ultra | `Use come show component` | 4 |
+
+|  | caveman | turo |
+|--|---------|------|
+| method | regex filler removal | dict POS + dedup + lemma + synonyms + gloss |
+| output | readable prose | keyword stream |
+| dictionary / WordNet | no | yes |
+| synonym / gloss swaps | no | yes (on by default) |
+| best when | you still need to read it | you only feed it to an LLM |
+
+Use caveman when a human reads the result; use turo when only a model does.
 
 ## Why
 

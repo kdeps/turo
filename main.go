@@ -45,7 +45,7 @@ func main() {
 	flag.BoolVar(&preamble, "preamble", false, "wrap output in a tagged block for system prompt injection")
 	flag.BoolVar(&filler, "filler", envDefaultOn("TURO_FILLER"), "delete filler/pleasantry/hedge words first (on; disable with -filler=false or TURO_FILLER=off)")
 	flag.BoolVar(&synonyms, "synonyms", envDefaultOn("TURO_SYNONYMS"), "replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
-	flag.BoolVar(&gloss, "gloss", envTrue("TURO_GLOSS"), "swap words for the shortest defining word in their dictionary definition (very lossy; off)")
+	flag.BoolVar(&gloss, "gloss", envDefaultOn("TURO_GLOSS"), "swap words for the shortest defining word in their dictionary definition (on; disable with -gloss=false or TURO_GLOSS=off)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.Parse()
 
