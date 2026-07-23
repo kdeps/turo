@@ -38,6 +38,5 @@ homebrew_casks:
   - repository:
       owner: kdeps
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/kdeps/turo"
     description: "Point more. Token less. Reduce text to its content words to cut input tokens."
