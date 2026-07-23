@@ -1,5 +1,5 @@
 /turo
 /dist/
-# 23MB Moby source; the baked map (thesaurus_data.go) is committed instead.
-# Needed only to regenerate via tools/gensyn.py.
+# Old 23MB Moby source, no longer used — the map is now generated from WordNet
+# by tools/gensyn.py. The baked map (thesaurus_data.go) is committed instead.
 /thesaurus.txt

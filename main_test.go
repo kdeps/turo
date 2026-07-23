@@ -119,8 +119,8 @@ func TestShortenSynonyms(t *testing.T) {
 	// A swap fires only when the map has a token-cheaper synonym of the same
 	// part of speech; punctuation and structure pass through.
 	got := shortenSynonyms("The abdomen is here.")
-	if !strings.Contains(got, "pot") {
-		t.Fatalf("expected noun->noun swap abdomen->pot, got %q", got)
+	if !strings.Contains(got, "belly") {
+		t.Fatalf("expected noun->noun swap abdomen->belly, got %q", got)
 	}
 	if !strings.HasSuffix(got, ".") {
 		t.Fatalf("expected trailing punctuation preserved, got %q", got)

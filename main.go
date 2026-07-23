@@ -94,11 +94,11 @@ func envTrue(name string) bool {
 }
 
 // shortenSynonyms replaces each word with a token-cheaper synonym from the
-// baked thesaurus map, but only when the synonym shares the word's dictionary
-// part of speech. This is lossy — the Moby thesaurus is association data, so
-// swaps can change meaning — hence it is opt-in (--synonyms / TURO_SYNONYMS).
-// Non-letter runs (punctuation, code symbols, whitespace) pass through so the
-// text structure is preserved for the reduction stage that follows.
+// baked WordNet map, but only when the synonym shares the word's dictionary
+// part of speech. It is lossy — WordNet polysemy means a swap can shift sense —
+// so it is opt-in (--synonyms / TURO_SYNONYMS). Non-letter runs (punctuation,
+// code symbols, whitespace) pass through so the text structure is preserved for
+// the reduction stage that follows.
 func shortenSynonyms(text string) string {
 	var b, word strings.Builder
 	flush := func() {
