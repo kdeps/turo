@@ -223,6 +223,22 @@ func TestReduceMultiPass(t *testing.T) {
 	}
 }
 
+func TestReducePreservesLiterals(t *testing.T) {
+	in := "See https://example.com/a/b?q=1 and pkg/agent/loop.go, then run `make build` at version 1.2.3."
+	got := reduce(in, "ultra", 0, 0, true, true, true)
+	for _, lit := range []string{
+		"https://example.com/a/b?q=1", "pkg/agent/loop.go", "`make build`", "1.2.3",
+	} {
+		if !strings.Contains(got, lit) {
+			t.Fatalf("literal %q not preserved verbatim in:\n%s", lit, got)
+		}
+	}
+	// never larger than the input
+	if estimateTokens(got) > estimateTokens(in) {
+		t.Fatalf("output larger than input: %d > %d", estimateTokens(got), estimateTokens(in))
+	}
+}
+
 func TestParseToGraph_UltraLemmaDedup(t *testing.T) {
 	// Every inflection of go/fox/run collapses to one token each.
 	got := parseToGraph("the fox goes and the fox went and foxes run while it ran", "ultra", 0)

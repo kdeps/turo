@@ -142,11 +142,16 @@ const maxConvergePasses = 100
 // structured docs keep shrinking for a pass or two before converging. passes>0
 // caps the number of iterations; passes<=0 runs to convergence (safety-capped).
 func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss bool) string {
+	// Pull URLs, code, paths, and identifiers out before reducing — the
+	// pipeline shreds anything with non-letter characters — then re-append them
+	// verbatim so they survive intact.
+	stripped, literals := protectLiterals(text)
+
 	limit := passes
 	if limit <= 0 {
 		limit = maxConvergePasses
 	}
-	out := text
+	out := stripped
 	for i := 0; i < limit; i++ {
 		step := out
 		if filler {
@@ -164,7 +169,15 @@ func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss bo
 		}
 		out = step
 	}
-	return out
+
+	if len(literals) == 0 {
+		return out
+	}
+	lits := strings.Join(literals, " ")
+	if strings.TrimSpace(out) == "" {
+		return lits
+	}
+	return strings.TrimRight(out, "\n ") + " " + lits
 }
 
 // wrapPreamble wraps reduced text in a tagged block that tells the LLM the

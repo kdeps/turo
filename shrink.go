@@ -39,6 +39,26 @@ var protectedPatterns = []*regexp.Regexp{
 
 const maxRestorePasses = 8
 
+// protectLiterals removes every protected segment (code, inline code, URLs,
+// paths, CONST_CASE, dotted.calls, version numbers) from the text and returns
+// the stripped prose plus the collected literals in first-seen order. The
+// reduction pipeline mangles anything with non-letter characters, so these are
+// pulled out, the prose is reduced, and the literals are re-appended verbatim.
+func protectLiterals(text string) (stripped string, literals []string) {
+	seen := map[string]bool{}
+	work := text
+	for _, re := range protectedPatterns {
+		work = re.ReplaceAllStringFunc(work, func(m string) string {
+			if !seen[m] {
+				seen[m] = true
+				literals = append(literals, m)
+			}
+			return " "
+		})
+	}
+	return work, literals
+}
+
 // shrinkProse deletes filler/pleasantry/hedge/leader/article words while
 // protecting code, paths, URLs, and identifiers. It preserves readable prose;
 // the reduction stage that follows does the heavier keyword extraction.
