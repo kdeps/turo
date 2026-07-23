@@ -42,9 +42,9 @@ confirm documentation updated reflect commit message notice security
 vulnerability unsanitized user input hardcoded must flag merge
 ```
 
-Or **69 characters** with `--level ultra-wenyan`, which additionally swaps each
+Or **69 characters** with `--level wenyan`, which additionally swaps each
 word for a single Classical Chinese character (for CJK-tokenizer models — see
-[ultra-wenyan](#ultra-wenyan-cjk-tokenizer-models-only)):
+[wenyan](#wenyan-cjk-tokenizer-models-only)):
 
 ```
 閱引請作察變檔驗碼引退存為要查者增試 untested 破診後證文更映交訊覺安隙 unsanitized 戶入 hardcoded 須標併
@@ -144,37 +144,37 @@ tokenizer.
 | **lite** | Adjectives, nouns, verbs, and leftover adverbs/prepositions | ~65% |
 | **full** | Adjectives, nouns, verbs | ~70% |
 | **ultra** (default) | Nouns and verbs only, deduplicated by lemma (base form) | ~70%+ |
-| **ultra-wenyan** | ultra, then swap surviving words for a single 文言 (Classical Chinese) character | CJK models only |
+| **wenyan** | ultra, then swap surviving words for a single 文言 (Classical Chinese) character | CJK models only |
 
 ```bash
 echo "the quick brown fox jumps over the lazy dog" | turo --level lite   # quick brown fox jumps over lazy dog
 echo "the quick brown fox jumps over the lazy dog" | turo --level full   # quick brown fox jumps lazy dog
 echo "the quick brown fox jumps over the lazy dog" | turo --level ultra  # fox jump dog
-echo "the wise king studies the old book" | turo --level ultra-wenyan    # 智 王 學 舊 書
+echo "the wise king studies the old book" | turo --level wenyan    # 智王學舊書
 ```
 
-### ultra-wenyan (CJK-tokenizer models only)
+### wenyan (CJK-tokenizer models only)
 
-`ultra-wenyan` reduces at ultra, then swaps each surviving English content word
+`wenyan` reduces at ultra, then swaps each surviving English content word
 for one Classical Chinese character (`water` -> `水`, `king` -> `王`, `verify` ->
 `驗`) from a ~380-entry hand-curated lexicon. One char per concept, no spaces
 (Classical Chinese has none).
 
 Two examples, measured:
 
-| input | ultra | ultra-wenyan | chars | cl100k | CJK-model (~1/char) |
+| input | ultra | wenyan | chars | cl100k | CJK-model (~1/char) |
 |-------|-------|--------------|-------|--------|----------------------|
 | `The wise king uses water and fire...` (80 ch) | `Wise king use water fire person see mountain old tree` | `智王用水火人見山舊樹` | **10** | 15 | **~10** |
 | the PR-review paragraph (766 ch) | 283 ch / 41 tok | `閱引請作察變檔驗碼引退存為要查者增試 untested 破診後證文更映交訊覺安隙 unsanitized 戶入 hardcoded 須標併` | **69** | 67 | **~42** |
 
 It collapses to the fewest **characters** (766 -> 69 on the paragraph). A CJK
-character is 2-3 tokens on OpenAI's cl100k, so `ultra-wenyan` is *larger* there
+character is 2-3 tokens on OpenAI's cl100k, so `wenyan` is *larger* there
 (67 > 41). **It only wins on CJK-optimized tokenizers** (Qwen, DeepSeek, GLM),
 where a common character is ~1 token — then those 69 chars are ~42 tokens vs
 plain ultra's 71. Don't use it with OpenAI models.
 
 turo's own token estimator counts CJK as 1 rune = 1 token (matching those
-models), so it treats `ultra-wenyan` as a reduction and never rejects it. Words
+models), so it treats `wenyan` as a reduction and never rejects it. Words
 outside the lexicon stay English (`untested`, `unsanitized`, `hardcoded`
 above); code/paths/URLs are preserved verbatim. Extend `wenyanMap` for more
 coverage.

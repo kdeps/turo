@@ -73,7 +73,7 @@ func main() {
 	}
 
 	if !validLevel(level) {
-		fmt.Fprintf(os.Stderr, "turo: invalid level %q — use lite, full, ultra, or ultra-wenyan\n", level)
+		fmt.Fprintf(os.Stderr, "turo: invalid level %q — use lite, full, ultra, or wenyan\n", level)
 		os.Exit(1)
 	}
 
@@ -142,7 +142,7 @@ const maxConvergePasses = 100
 // structured docs keep shrinking for a pass or two before converging. passes>0
 // caps the number of iterations; passes<=0 runs to convergence (safety-capped).
 func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss bool) string {
-	// ultra-wenyan: reduce at ultra, then swap surviving English words for their
+	// wenyan: reduce at ultra, then swap surviving English words for their
 	// 文言 character.
 	base, wenyan := wenyanBaseLevel(level)
 	level = base
@@ -192,7 +192,7 @@ func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss bo
 // wenyanBaseLevel maps a wenyan level to its base reduction level and reports
 // whether the 文言 swap should run. Non-wenyan levels pass through unchanged.
 func wenyanBaseLevel(level string) (base string, wenyan bool) {
-	if level == "ultra-wenyan" {
+	if level == "wenyan" {
 		return "ultra", true
 	}
 	return level, false
@@ -290,7 +290,7 @@ func sameClass(a, b string) bool {
 // wenyan variants.
 func validLevel(s string) bool {
 	switch s {
-	case "lite", "full", "ultra", "ultra-wenyan":
+	case "lite", "full", "ultra", "wenyan":
 		return true
 	}
 	return false

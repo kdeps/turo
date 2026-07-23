@@ -240,7 +240,7 @@ func TestWenyanBaseLevel(t *testing.T) {
 		base   string
 		wenyan bool
 	}{
-		"ultra-wenyan": {"ultra", true},
+		"wenyan": {"ultra", true},
 		"ultra":        {"ultra", false},
 		"full":         {"full", false},
 	}
@@ -253,7 +253,7 @@ func TestWenyanBaseLevel(t *testing.T) {
 }
 
 func TestReduceWenyanSwapsAndKeepsCode(t *testing.T) {
-	got := reduce("The wise king studies pkg/x/y.go", "ultra-wenyan", 0, 0, true, false, false)
+	got := reduce("The wise king studies pkg/x/y.go", "wenyan", 0, 0, true, false, false)
 	if !strings.Contains(got, "智") || !strings.Contains(got, "王") {
 		t.Fatalf("expected wenyan chars in %q", got)
 	}
