@@ -1,16 +1,18 @@
 ---
 name: turo
 description: >
-  Stream editor that converts prose to compact kartographer graphs. Pipes text
-  (CLAUDE.md, README, memory, instructions) through turo binary and injects the
-  graph output as the system prompt. Cuts input tokens by replacing verbose text
-  with arrow-chain graphs. Use when user says "graph mode", "use turo", "compact
-  context", or invokes /turo. Auto-triggers when token budget is tight.
+  Stream editor that reduces prose to its content words to cut input tokens.
+  Pipes text (CLAUDE.md, README, memory, instructions) through the turo binary
+  and injects the reduced output as the system prompt. Strips stopwords,
+  deduplicates, and keeps only meaning-bearing words. Use when user says "use
+  turo", "compact context", "reduce tokens", or invokes /turo. Auto-triggers
+  when token budget is tight.
 ---
 
-turo is a stream editor: text in, graph out. It reads prose and outputs a
-kartographer-style directed graph — adjectives point to nouns, nouns to verbs,
-verbs to objects. All filler words stripped. Only structural relationships remain.
+turo is a stream editor: prose in, a compact stream of deduplicated content
+words out. It strips articles, prepositions, conjunctions, pronouns, and
+repeated words, keeping only the nouns, verbs, and adjectives that carry
+meaning — in reading order, no arrows, no emoji (both cost tokens).
 
 ## Trigger
 
@@ -19,32 +21,44 @@ verbs to objects. All filler words stripped. Only structural relationships remai
 ## What it does
 
 1. Reads input text (CLAUDE.md, memory, instructions, tool guidance, etc.)
-2. Classifies words using embedded English dictionary (120k words)
-3. Outputs directed graph edges: `adj → noun`, `noun → verb`, `verb → object`
-4. Strips articles, prepositions, conjunctions, adverbs — structure only
+2. Classifies words using an embedded English dictionary (120k words)
+3. Keeps the content words for the level, deduplicated, in reading order
+4. Passes the original through unchanged if the reduced form is not smaller
 
 ## Output format
 
+Input:
+
 ```
-quick → fox
-brown → fox
-fox → jumps
-jumps → dog
-lazy → dog
+the quick brown fox jumps over the lazy dog
 ```
 
-Each line is a kartographer edge. Zero filler words. ~60-80% fewer tokens than
-equivalent prose.
+Output (full):
+
+```
+quick brown fox jumps lazy dog
+```
+
+Zero filler words, no repeats. ~70% fewer input tokens on real docs.
+
+## Levels
+
+| Level | Keeps | Command |
+|-------|-------|---------|
+| lite  | adj, noun, verb, leftover adverbs/preps | `turo --level lite` |
+| full  | adj, noun, verb (default) | `turo --level full` |
+| ultra | nouns + verbs, deduped by stem | `turo --level ultra` |
 
 ## Modes
 
 | Mode | Command | Use |
 |------|---------|-----|
-| Stream | `cat file \| turo` | Convert text to graph |
-| Preamble | `turo --preamble` | Wrap graph for system prompt injection |
+| Stream | `cat file \| turo` | Reduce text to content words |
+| Preamble | `turo --preamble` | Wrap output for system prompt injection |
 
 ## Boundaries
 
 - Only compresses system prompt input — does not modify agent behavior
-- Falls through silently if turo binary not on PATH
+- Never emits output larger than the input (passes original through)
+- Falls through silently if the turo binary is not on PATH
 - `KDEPS_TURO=off` or `TURO_DISABLED=1` disables

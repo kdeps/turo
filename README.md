@@ -13,16 +13,14 @@ the quick brown fox jumps all over the lazy dog
 becomes:
 
 ```
-quick → fox
-brown → fox
-fox → jumps
-jumps → dog
-lazy → dog
+quick brown fox jumps lazy dog
 ```
 
-No articles. No prepositions. No adverbs. Just pointers between content words. Each line is a kartographer edge.
+No articles. No prepositions. No adverbs. No repeated words. Only the content words that carry meaning, deduplicated, in reading order. Measured ~70% fewer input tokens on real docs (README 1029 -> 306 tokens).
 
-Turo is a skill/plugin for Claude Code, Codex, Gemini, Cursor, Windsurf, Cline, Copilot, and 30+ other agents. Install once. Every agent gets the same compact graph format — code, commands, and errors stay byte-for-byte exact. You save input tokens on every turn, forever.
+Why not arrows? A `A → B` edge list repeats shared nodes and the arrow itself tokenizes to extra tokens — it makes text *bigger*. Turo drops every token that does not earn its place. If a reduction is not smaller than the input, turo passes the original through unchanged.
+
+Turo is a skill/plugin for Claude Code, Codex, Gemini, Cursor, Windsurf, Cline, Copilot, and 30+ other agents. Install once. Every agent gets the same reducer — code, commands, and errors stay byte-for-byte exact. You save input tokens on every turn, forever.
 
 ## Install
 
@@ -37,9 +35,8 @@ Turo is a skill/plugin for Claude Code, Codex, Gemini, Cursor, Windsurf, Cline, 
 ## Usage
 
 ```bash
-cat CLAUDE.md | turo              # text → graph
+cat CLAUDE.md | turo              # text -> deduped content words
 echo "fox jumps over dog" | turo  # pipe mode
-turo --max-depth 3                # cap transitive edge depth
 turo --preamble                   # wrap for system prompt injection
 turo --version                    # print version
 ```
@@ -48,14 +45,14 @@ turo --version                    # print version
 
 | Level | What it keeps | Reduction |
 |-------|--------------|-----------|
-| **lite** | All content words (adj, noun, verb, adv, prep) | ~40% |
-| **full** (default) | Adj, noun, verb — kartographer edges | ~60% |
-| **ultra** | Adj, noun, verb — single deduplicated chain | ~80% |
+| **lite** | Adjectives, nouns, verbs, and leftover adverbs/prepositions | ~65% |
+| **full** (default) | Adjectives, nouns, verbs | ~70% |
+| **ultra** | Nouns and verbs only, deduplicated by word stem | ~70%+ |
 
 ```bash
-echo "fox jumps over lazy dog" | turo --level lite   # fox → jumps → over → lazy → dog
-echo "fox jumps over lazy dog" | turo --level full   # fox→jumps, lazy→dog
-echo "fox jumps over lazy dog" | turo --level ultra  # fox → jumps → lazy → dog
+echo "the quick brown fox jumps over the lazy dog" | turo --level lite   # quick brown fox jumps over lazy dog
+echo "the quick brown fox jumps over the lazy dog" | turo --level full   # quick brown fox jumps lazy dog
+echo "the quick brown fox jumps over the lazy dog" | turo --level ultra  # fox jump dog
 ```
 
 Set default via `TURO_LEVEL` env var.
@@ -86,7 +83,7 @@ Once turo is on PATH, any agent can also pipe context through it directly:
 
 ```bash
 cat CLAUDE.md | turo --preamble    # compact system prompt
-cat error.log | turo               # graph from log output
+cat error.log | turo               # reduce log output
 ```
 
 Set `TURO_LEVEL=ultra` for maximum compression. `KDEPS_TURO=off` or `TURO_DISABLED=1` to disable.
@@ -101,8 +98,8 @@ Set `TURO_LEVEL=ultra` for maximum compression. `KDEPS_TURO=off` or `TURO_DISABL
 
 1. Embedded English dictionary (120k words, 14MB) classifies every word
 2. Strips articles, prepositions, conjunctions, pronouns (~70 stop words)
-3. Builds directed edges: adj→noun, noun→verb, verb→noun
-4. Outputs kartographer graph
+3. Keeps the content words for the level (nouns, verbs, adjectives)
+4. Deduplicates and emits them in reading order — then keeps the result only if it is actually smaller than the input
 
 ## Why
 

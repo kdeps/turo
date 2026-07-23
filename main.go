@@ -1,15 +1,15 @@
-// turo — stream editor that converts text to compact graphs.
+// turo — stream editor that reduces text to its content words to cut tokens.
 //
 // Reads prose (CLAUDE.md, README, instructions, any text) from stdin or a file
-// and outputs a structural graph — relationships, hierarchy, key terms — without
-// the filler. Focus on big picture, not listing every file.
+// and outputs the meaning-bearing words — nouns, verbs, adjectives —
+// deduplicated and in reading order, with all stopwords stripped. Never emits
+// something larger than the input.
 //
 // Usage:
 //
-//	cat CLAUDE.md | turo              stream editor: text → graph
+//	cat CLAUDE.md | turo              reduce text to content words
 //	turo file.md                      same, from file
 //	turo --preamble                   wrap output for system prompt injection
-//	turo --max-depth 4                cap transitive edge depth
 //	turo --version                    print version
 //
 // Binary on PATH, detected by kdeps like RTK.
@@ -102,13 +102,45 @@ func readInput() (string, error) {
 	return "", fmt.Errorf("no input — pipe text or provide a file")
 }
 
-// parseToGraph extracts structure from text at the given compression level.
-func parseToGraph(text string, level string, maxDepth int) string {
-	g := extractStructure(text, level)
-	if g != "" {
-		return g
+// parseToGraph reduces text at the given compression level. It never returns
+// something larger than the input: if the reduced form does not save tokens
+// (estimated), the original text is passed through unchanged.
+func parseToGraph(text string, level string, _ int) string {
+	out := extractStructure(text, level)
+	if out == "" {
+		out = extractTermGraph(text, level)
 	}
-	return extractTermGraph(text, level, maxDepth)
+	if out == "" || estimateTokens(out) >= estimateTokens(text) {
+		return text
+	}
+	return out
+}
+
+// estimateTokens approximates a BPE token count (cl100k-style) without a
+// tokenizer. ASCII words cost ~1 token plus one per 5 extra chars; non-ASCII
+// runs (emoji, rare unicode) cost roughly one token per rune. Used only to
+// decide whether a reduction actually saves tokens.
+func estimateTokens(s string) int {
+	n := 0
+	for _, f := range strings.Fields(s) {
+		runes := []rune(f)
+		ascii := true
+		for _, r := range runes {
+			if r > 127 {
+				ascii = false
+				break
+			}
+		}
+		if ascii {
+			n += 1 + len(f)/5
+		} else {
+			n += len(runes)
+		}
+	}
+	if n == 0 {
+		n = 1
+	}
+	return n
 }
 
 // --- structured: headings + file paths ---
@@ -186,11 +218,11 @@ func extractStructure(text string, level string) string {
 		indent := strings.Repeat("  ", s.level-1)
 		fmt.Fprintf(&sb, "%s%s\n", indent, s.name)
 		for _, p := range s.paths {
-			fmt.Fprintf(&sb, "%s  → %s\n", indent, p)
+			fmt.Fprintf(&sb, "%s  %s\n", indent, p)
 		}
 		if len(s.body) > 0 {
 			bodyText := strings.Join(s.body, " ")
-			bodyGraph := extractTermGraph(bodyText, level, 1)
+			bodyGraph := extractTermGraph(bodyText, level)
 			for _, line := range strings.Split(strings.TrimSpace(bodyGraph), "\n") {
 				if line != "" {
 					fmt.Fprintf(&sb, "%s  %s\n", indent, line)
@@ -240,82 +272,6 @@ var ultraStopWords = map[string]bool{
 	"often": true, "always": true, "never": true, "quite": true, "rather": true,
 }
 
-type word struct {
-	text  string
-	class string
-}
-
-var wordEmoji = map[string]string{
-	"fox": "🦊", "dog": "🐕", "cat": "🐈", "bird": "🐦", "fish": "🐟",
-	"bear": "🐻", "wolf": "🐺", "snake": "🐍", "bug": "🐛",
-	"tree": "🌳", "fire": "🔥", "water": "💧", "earth": "🌍", "sun": "☀️",
-	"jump": "🦘", "jumps": "🦘", "run": "🏃", "runs": "🏃", "walk": "🚶",
-	"move": "➡️", "go": "🚀", "goes": "🚀",
-	"quick": "⚡", "fast": "⚡", "slow": "🐢", "lazy": "🦥",
-	"big": "🐘", "small": "🔹", "new": "🆕", "old": "📜",
-	"high": "📈", "low": "📉", "long": "📏", "short": "📐",
-	"red": "🔴", "blue": "🔵", "green": "🟢", "yellow": "🟡", "brown": "🟤", "black": "⚫", "white": "⚪",
-	"good": "✅", "bad": "❌", "hot": "🔥", "cold": "🧊",
-	"easy": "👍", "hard": "💪", "simple": "✌️", "complex": "🧩",
-	"clean": "🧹", "safe": "🛡", "broken": "💔", "best": "🏆",
-	"computer": "💻", "server": "🖥", "phone": "📱", "car": "🚗",
-	"data": "📊", "file": "📄", "folder": "📁", "code": "💻",
-	"api": "🔌", "db": "🗄", "http": "🌐", "url": "🔗",
-	"app": "📲", "web": "🌐", "cloud": "☁️", "network": "🌐",
-	"test": "🧪", "build": "🏗", "deploy": "🚢", "release": "📦",
-	"commit": "💾", "push": "⬆️", "pull": "⬇️", "merge": "🔀",
-	"branch": "🌿", "fork": "🍴", "clone": "🐑", "patch": "🩹",
-	"fix": "🔧", "add": "➕", "remove": "➖", "create": "✨",
-	"delete": "🗑", "update": "🔄", "change": "🔀", "edit": "✏️",
-	"find": "🔍", "search": "🔎", "read": "📖", "write": "✍️",
-	"save": "💾", "load": "📥", "send": "📤", "fetch": "📥",
-	"start": "▶️", "stop": "⏹", "pause": "⏸", "wait": "⏳",
-	"check": "✅", "verify": "🔬", "validate": "👍", "confirm": "☑️",
-	"handle": "✋", "support": "🏋", "accept": "🤝", "reject": "👎",
-	"include": "📎", "contain": "📦", "keep": "📌", "drop": "💧",
-	"call": "📞", "return": "↩️", "pass": "➡️", "skip": "⏭",
-	"object": "📦", "reference": "🔗", "value": "💎", "type": "🏷",
-	"name": "📛", "key": "🔑", "lock": "🔒", "list": "📋",
-	"map": "🗺", "set": "📚", "array": "📊", "string": "📝",
-	"number": "🔢", "bool": "🔘", "null": "⭕", "error": "⚠️",
-	"warning": "⚠️", "info": "ℹ️", "help": "🆘", "question": "❓",
-	"time": "🕐", "date": "📅", "year": "📆", "day": "🌅",
-	"money": "💰", "price": "💲", "cost": "💸", "free": "🆓",
-	"on": "🟢", "off": "🔴", "open": "📂", "close": "📁",
-	"first": "🥇", "last": "🏁", "next": "⏩", "prev": "⏪",
-	"same": "🟰", "different": "≠",
-	"user": "👤", "admin": "👑", "team": "👥",
-	"component": "🧩", "function": "ƒ", "class": "📦", "method": "🔧",
-	"module": "📦", "package": "📦", "library": "📚",
-	"interface": "🔌", "service": "⚙", "client": "💻",
-	"database": "🗄", "cache": "💾", "queue": "📥", "log": "📋",
-	"config": "⚙", "env": "🌍", "secret": "🤫", "token": "🎟",
-	"request": "📨", "response": "📩", "event": "📢", "message": "💬",
-	"render": "🎨", "react": "⚛️", "state": "📊", "prop": "📌",
-	"hook": "🪝", "effect": "⚡", "memo": "🧠", "callback": "📞",
-	"context": "🌐", "router": "🚦", "store": "🏪", "action": "🎬",
-	"use": "🔨", "uses": "🔨", "using": "🔨", "make": "🏭", "makes": "🏭",
-	"get": "📥", "gets": "📥", "see": "👁", "sees": "👁",
-	"reason": "🤔", "cycle": "🔁", "creates": "✨",
-	"re-render": "🔄", "rerender": "🔄", "re-rendering": "🔄",
-	"usememo": "🧠", "rendering": "🎨", "shallow": "🪞",
-	"comparison": "🆚", "inline": "📐", "trigger": "🔫",
-	"recommend": "💡", "memoize": "🧠",
-}
-
-func wordIcon(w string) string {
-	if e, ok := wordEmoji[w]; ok {
-		return e
-	}
-	root := stem(w)
-	if root != w {
-		if e, ok := wordEmoji[root]; ok {
-			return e
-		}
-	}
-	return ""
-}
-
 func stem(w string) string {
 	doubles := []struct{ suffix, replacement string }{
 		{"nning", "n"}, {"pping", "p"}, {"tting", "t"}, {"ssing", "s"},
@@ -341,152 +297,59 @@ func stem(w string) string {
 	return w
 }
 
-func extractTermGraph(text string, level string, maxDepth int) string {
-	sentences := strings.FieldsFunc(text, func(r rune) bool {
-		return r == '.' || r == '!' || r == '?' || r == '\n'
+// keepClass reports whether a word of the given class survives at a level.
+// lite keeps the most (adjectives, nouns, verbs, and leftover adverbs/preps);
+// full drops the leftovers; ultra keeps only nouns and verbs.
+func keepClass(level, class string) bool {
+	switch level {
+	case "lite":
+		return class == "adj" || class == "noun" || class == "verb" || class == "other"
+	case "ultra":
+		return class == "noun" || class == "verb"
+	default: // full
+		return class == "adj" || class == "noun" || class == "verb"
+	}
+}
+
+// extractTermGraph reduces free-form text to a space-joined stream of
+// deduplicated content words in reading order. No arrows, no emoji, no
+// repeated nodes — those all cost tokens. Stopwords are dropped; the surviving
+// words carry the meaning. ultra additionally drops adjectives and dedupes by
+// stem so "runs" and "running" collapse to one token.
+func extractTermGraph(text string, level string) string {
+	fields := strings.FieldsFunc(text, func(r rune) bool {
+		return r == '.' || r == '!' || r == '?' || r == '\n' || r == '\t' ||
+			r == ' ' || r == ',' || r == ';' || r == ':'
 	})
 
-	var all []word
-	for _, sent := range sentences {
-		for _, w := range strings.Fields(sent) {
-			lower := strings.ToLower(strings.Trim(w, ",;:.!?\"'()[]{}\\`*~|<>—–-"))
-			lower = strings.ReplaceAll(lower, "'", "")
-			if len(lower) < 2 || stopWords[lower] || isAllPunct(lower) {
-				continue
-			}
-			if level == "ultra" && ultraStopWords[lower] {
-				continue
-			}
-			all = append(all, word{text: lower, class: classify(lower)})
+	seen := make(map[string]bool)
+	var out []string
+	for _, w := range fields {
+		lower := strings.ToLower(strings.Trim(w, ",;:.!?\"'()[]{}\\`*~|<>—–-"))
+		lower = strings.ReplaceAll(lower, "'", "")
+		if len(lower) < 2 || stopWords[lower] || isAllPunct(lower) {
+			continue
 		}
+		if level == "ultra" && ultraStopWords[lower] {
+			continue
+		}
+		if !keepClass(level, classify(lower)) {
+			continue
+		}
+		key := lower
+		if level == "ultra" {
+			key = stem(lower) // collapse inflections in the most aggressive mode
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
 	}
-
-	if len(all) == 0 {
+	if len(out) == 0 {
 		return ""
 	}
-
-	var edges []string
-	if level == "lite" {
-		var prev string
-		for _, w := range all {
-			if w.class == "adj" || w.class == "noun" || w.class == "verb" || w.class == "other" {
-				if prev != "" {
-					edges = append(edges, prev+" → "+w.text)
-				}
-				prev = w.text
-			}
-		}
-	} else {
-		var adjBuf []string
-		var lastNoun, lastVerb string
-		for _, w := range all {
-			if w.class != "adj" && w.class != "noun" && w.class != "verb" {
-				adjBuf = adjBuf[:0]
-				continue
-			}
-			switch w.class {
-			case "adj":
-				adjBuf = append(adjBuf, w.text)
-			case "noun":
-				for _, a := range adjBuf {
-					edges = append(edges, a+" → "+w.text)
-				}
-				adjBuf = adjBuf[:0]
-				if lastVerb != "" {
-					edges = append(edges, lastVerb+" → "+w.text)
-					lastVerb = ""
-				}
-				lastNoun = w.text
-			case "verb":
-				if lastNoun != "" {
-					edges = append(edges, lastNoun+" → "+w.text)
-				}
-				lastVerb = w.text
-				adjBuf = adjBuf[:0]
-			}
-		}
-		for _, a := range adjBuf {
-			if lastNoun != "" {
-				edges = append(edges, a+" → "+lastNoun)
-			}
-		}
-	}
-
-	if len(edges) == 0 {
-		return ""
-	}
-	edges = expandEdges(edges, maxDepth)
-	if level == "ultra" {
-		return formatUltra(edges)
-	}
-	return strings.Join(edges, "\n") + "\n"
-}
-
-func expandEdges(edges []string, maxDepth int) []string {
-	if maxDepth <= 1 {
-		return edges
-	}
-	// Build adjacency: node -> list of nodes it points to.
-	next := make(map[string][]string)
-	for _, e := range edges {
-		parts := strings.SplitN(e, " → ", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		a, b := parts[0], parts[1]
-		next[a] = append(next[a], b)
-	}
-
-	var expanded []string
-	for _, e := range edges {
-		parts := strings.SplitN(e, " → ", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		a, b := parts[0], parts[1]
-		path := []string{a, b}
-		// Follow chain: B -> C -> D up to maxDepth.
-		cur := b
-		for depth := 1; depth < maxDepth; depth++ {
-			targets := next[cur]
-			if len(targets) == 0 {
-				break
-			}
-			// If multiple outgoing, take first; fork into separate edges.
-			for i, t := range targets {
-				if i == 0 {
-					path = append(path, t)
-					cur = t
-				} else {
-					// Fork: new edge from the branch point.
-					branch := make([]string, len(path)-1)
-					copy(branch, path[:len(path)-1])
-					branch = append(branch, t)
-					expanded = append(expanded, strings.Join(branch, " → "))
-				}
-			}
-		}
-		expanded = append(expanded, strings.Join(path, " → "))
-	}
-	return expanded
-}
-
-func formatUltra(edges []string) string {
-	for i, e := range edges {
-		parts := strings.SplitN(e, " → ", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		a, b := parts[0], parts[1]
-		if ea := wordIcon(a); ea != "" {
-			a = ea
-		}
-		if eb := wordIcon(b); eb != "" {
-			b = eb
-		}
-		edges[i] = a + " → " + b
-	}
-	return strings.Join(edges, "\n") + "\n"
+	return strings.Join(out, " ")
 }
 
 func classify(w string) string { return dictClassify(w) }
