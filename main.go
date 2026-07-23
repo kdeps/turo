@@ -191,7 +191,7 @@ func resolveDefaultLevel() string {
 	if l := strings.ToLower(strings.TrimSpace(os.Getenv("TURO_LEVEL"))); l != "" {
 		return l
 	}
-	return "full"
+	return "ultra"
 }
 
 func readInput() (string, error) {
