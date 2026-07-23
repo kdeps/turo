@@ -16,11 +16,9 @@ becomes:
 quick brown fox jumps lazy dog
 ```
 
-No articles. No prepositions. No adverbs. No repeated words. Only the content words that carry meaning, deduplicated, in reading order. Measured ~70% fewer input tokens on real docs (README 1029 -> 306 tokens).
+No articles. No prepositions. No adverbs. No repeated words. Only the content words that carry meaning, deduplicated, in reading order. Measured ~70% fewer input tokens on real docs (README 1029 -> 306 tokens). If a reduction is not smaller than the input, turo passes the original through unchanged.
 
-Why not arrows? A `A → B` edge list repeats shared nodes and the arrow itself tokenizes to extra tokens — it makes text *bigger*. Turo drops every token that does not earn its place. If a reduction is not smaller than the input, turo passes the original through unchanged.
-
-Turo is a skill/plugin for Claude Code, Codex, Gemini, Cursor, Windsurf, Cline, Copilot, and 30+ other agents. Install once. Every agent gets the same reducer — code, commands, and errors stay byte-for-byte exact. You save input tokens on every turn, forever.
+Install turo once and any coding agent that can shell out to a binary — Claude Code, Codex, Gemini, Cursor, Windsurf, Cline, Copilot, and 20+ more — pipes its context through the same reducer. Code, paths, and identifiers pass through untouched.
 
 ## Install
 
