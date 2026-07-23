@@ -149,11 +149,25 @@ The `wenyan` levels swap each surviving English content word for one Classical
 Chinese character (`water` -> `水`, `king` -> `王`) from a hand-curated core
 lexicon. One char often encodes a whole concept.
 
-**This only saves tokens on CJK-optimized tokenizers** (Qwen, DeepSeek, GLM),
-where a common character is ~1 token. On OpenAI's cl100k a CJK character is 2-3
-tokens, so wenyan is *larger* there — don't use it with OpenAI models. Coverage
-is limited to the core lexicon; unmapped words stay English, and code/paths/URLs
-are preserved verbatim.
+Same input, measured — `The wise king uses water and fire. The person sees the
+mountain and the old tree.`:
+
+| level | output | chars | cl100k tokens | CJK-model tokens (~1/char) |
+|-------|--------|-------|---------------|-----------------------------|
+| input | the wise king uses water and fire... | 80 | 18 | ~18 |
+| **ultra** | `Wise king use water fire person see mountain old tree` | 53 | **11** | ~13 |
+| **ultra-wenyan** | `智王用水火人見山舊樹` | **10** | 15 | **~10** |
+
+wenyan collapses to the fewest **characters** (10 vs 53) — but a CJK character
+is 2-3 tokens on OpenAI's cl100k, so `ultra-wenyan` is *larger* there (15 > 11).
+**It only wins on CJK-optimized tokenizers** (Qwen, DeepSeek, GLM), where a
+common character is ~1 token — then those 10 chars are ~10 tokens and the density
+pays off on longer text. Don't use it with OpenAI models.
+
+turo's own token estimator counts CJK as 1 rune = 1 token (matching those
+models), so it treats wenyan as a reduction and never rejects it as "larger".
+Coverage is limited to the core lexicon; unmapped words stay English, and
+code/paths/URLs are preserved verbatim.
 
 In **ultra**, inflections of the same word collapse to one token by their
 dictionary base form: `goes`, `went`, `going` -> `go`; `children` -> `child`;

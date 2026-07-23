@@ -1,6 +1,15 @@
 package main
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+// reInterHanSpace matches a space between two Han characters — Classical Chinese
+// is written without spaces, and dropping them also saves separator tokens.
+//
+//nolint:gochecknoglobals // compiled once
+var reInterHanSpace = regexp.MustCompile(`(\p{Han})\s+(\p{Han})`)
 
 // wenyanMap maps common English content words to a single Classical Chinese
 // (文言) character. Hand-curated for correctness over coverage. Used by the
@@ -114,5 +123,10 @@ func applyWenyan(text string) string {
 		}
 	}
 	flush()
-	return b.String()
+	// Join adjacent 文言 characters (no spaces in Classical Chinese).
+	out := b.String()
+	for reInterHanSpace.MatchString(out) {
+		out = reInterHanSpace.ReplaceAllString(out, "$1$2")
+	}
+	return out
 }
