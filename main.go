@@ -32,12 +32,14 @@ func main() {
 		level       string
 		maxDepth    int
 		preamble    bool
+		synonyms    bool
 		showVersion bool
 	)
 
 	flag.StringVar(&level, "level", resolveDefaultLevel(), "compression level: lite, full, ultra")
 	flag.IntVar(&maxDepth, "max-depth", 0, "max transitive edge depth (0=unlimited)")
 	flag.BoolVar(&preamble, "preamble", false, "wrap output in a tagged block for system prompt injection")
+	flag.BoolVar(&synonyms, "synonyms", envTrue("TURO_SYNONYMS"), "first replace words with fewer-token synonyms (lossy; Moby thesaurus)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.Parse()
 
@@ -56,7 +58,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "turo: %v\n", err)
 		os.Exit(1)
 	}
-	graph := parseToGraph(input, level, maxDepth)
+	if synonyms {
+		input = shortenSynonyms(input) // stage 1: token-cheaper synonym swap
+	}
+	graph := parseToGraph(input, level, maxDepth) // stage 2: reduce
 
 	if preamble {
 		graph = wrapPreamble(graph)
@@ -64,19 +69,66 @@ func main() {
 	fmt.Print(graph)
 }
 
-// wrapPreamble wraps a graph in a tagged block that tells the LLM the content is
-// a compressed structural graph, not prose. Injected verbatim into a system prompt.
+// wrapPreamble wraps reduced text in a tagged block that tells the LLM the
+// content is compressed, not prose. Injected verbatim into a system prompt.
 func wrapPreamble(graph string) string {
 	if strings.TrimSpace(graph) == "" {
 		return ""
 	}
 	graph = strings.TrimRight(graph, "\n")
 	return "<context-graph>\n" +
-		"# Compressed context. Each line is a directed edge (A → B) or a node. " +
-		"Articles, prepositions, and filler are stripped; content words and their " +
-		"relationships are preserved. Code, paths, and identifiers are verbatim.\n" +
+		"# Compressed context: content words only. Articles, prepositions, filler, " +
+		"and repeated words are stripped; nouns, verbs, and adjectives are kept. " +
+		"Code, paths, and identifiers are verbatim.\n" +
 		graph + "\n" +
 		"</context-graph>\n"
+}
+
+// envTrue reports whether an environment variable is set to a truthy value.
+func envTrue(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// shortenSynonyms replaces each word with a token-cheaper synonym from the
+// baked thesaurus map, but only when the synonym shares the word's dictionary
+// part of speech. This is lossy — the Moby thesaurus is association data, so
+// swaps can change meaning — hence it is opt-in (--synonyms / TURO_SYNONYMS).
+// Non-letter runs (punctuation, code symbols, whitespace) pass through so the
+// text structure is preserved for the reduction stage that follows.
+func shortenSynonyms(text string) string {
+	var b, word strings.Builder
+	flush := func() {
+		if word.Len() == 0 {
+			return
+		}
+		w := word.String()
+		lw := strings.ToLower(w)
+		if s, ok := shorterSynonym[lw]; ok && sameClass(lw, s) {
+			b.WriteString(s)
+		} else {
+			b.WriteString(w)
+		}
+		word.Reset()
+	}
+	for _, r := range text {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			word.WriteRune(r)
+		} else {
+			flush()
+			b.WriteRune(r)
+		}
+	}
+	flush()
+	return b.String()
+}
+
+// sameClass reports whether two words share a known dictionary part of speech.
+func sameClass(a, b string) bool {
+	return dictKnows(a) && dictKnows(b) && dictClassify(a) == dictClassify(b)
 }
 
 func resolveDefaultLevel() string {

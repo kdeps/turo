@@ -115,6 +115,33 @@ func TestLemma(t *testing.T) {
 	}
 }
 
+func TestShortenSynonyms(t *testing.T) {
+	// A swap fires only when the map has a token-cheaper synonym of the same
+	// part of speech; punctuation and structure pass through.
+	got := shortenSynonyms("The abdomen is here.")
+	if !strings.Contains(got, "pot") {
+		t.Fatalf("expected noun->noun swap abdomen->pot, got %q", got)
+	}
+	if !strings.HasSuffix(got, ".") {
+		t.Fatalf("expected trailing punctuation preserved, got %q", got)
+	}
+	// A word with no mapping is left untouched.
+	if out := shortenSynonyms("kubernetes"); out != "kubernetes" {
+		t.Fatalf("unmapped word should be unchanged, got %q", out)
+	}
+}
+
+func TestEnvTrue(t *testing.T) {
+	t.Setenv("TURO_TEST_FLAG", "1")
+	if !envTrue("TURO_TEST_FLAG") {
+		t.Fatal("expected envTrue for \"1\"")
+	}
+	t.Setenv("TURO_TEST_FLAG", "off")
+	if envTrue("TURO_TEST_FLAG") {
+		t.Fatal("expected envTrue false for \"off\"")
+	}
+}
+
 func TestParseToGraph_UltraLemmaDedup(t *testing.T) {
 	// Every inflection of go/fox/run collapses to one token each.
 	got := parseToGraph("the fox goes and the fox went and foxes run while it ran", "ultra", 0)

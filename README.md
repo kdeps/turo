@@ -38,8 +38,21 @@ Turo is a skill/plugin for Claude Code, Codex, Gemini, Cursor, Windsurf, Cline, 
 cat CLAUDE.md | turo              # text -> deduped content words
 echo "fox jumps over dog" | turo  # pipe mode
 turo --preamble                   # wrap for system prompt injection
+turo --synonyms                   # also swap words for token-cheaper synonyms (lossy)
 turo --version                    # print version
 ```
+
+### Synonym substitution (opt-in, lossy)
+
+`--synonyms` (or `TURO_SYNONYMS=1`) runs a first pass that replaces each word
+with a fewer-token synonym before reducing. It is **off by default and rarely
+helps**: modern tokenizers already encode most words as a single token, and the
+Moby thesaurus is association data, so swaps can change meaning
+(`abdomen` -> `pot`, `aberration` -> `sin`). Swaps are gated to same-part-of-speech
+words, and turo still passes the original through if the result is not smaller —
+but treat this as a last resort, not a default. The substitution table is baked
+from `thesaurus.txt` via `tools/gensyn.py` using the cl100k tokenizer, so gains
+are measured for that tokenizer, not the target model's.
 
 ## Intensity levels
 
