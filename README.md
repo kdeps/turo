@@ -6,17 +6,46 @@
   <strong>Point more. Token less.</strong>
 </p>
 
-```
-the quick brown fox jumps all over the lazy dog
-```
-
-becomes:
+A real instruction block — **138 tokens** (cl100k):
 
 ```
-quick brown fox jumps lazy dog
+When you are reviewing a pull request, please make sure that you carefully
+examine each of the changed files and verify that the new code does not
+introduce any regressions in the existing behavior. It is really important that
+you check whether the author has added appropriate tests for the new
+functionality, because untested code is very likely to break in subtle ways that
+are difficult to debug later. You should also confirm that the documentation has
+been updated to reflect the changes, and that the commit messages clearly
+explain what was changed and why. If you notice any potential security
+vulnerabilities, such as unsanitized user input or hardcoded credentials, you
+must flag them immediately and request changes before the pull request can be
+merged.
 ```
 
-No articles. No prepositions. No adverbs. No repeated words. Only the content words that carry meaning, deduplicated, in reading order. Measured ~70% fewer input tokens on real docs (README 1029 -> 306 tokens). If a reduction is not smaller than the input, turo passes the original through unchanged.
+becomes **54 tokens — 61% fewer** (`turo`, meaning intact):
+
+```
+Reviewing pull request make examine changed files verify new code introduce
+regressions existing behavior important check author added appropriate tests
+functionality untested break subtle ways difficult debug later also confirm
+documentation updated reflect changes commit messages explain notice potential
+security vulnerabilities unsanitized user input hardcoded credentials must flag
+merged
+```
+
+or **41 tokens — 70% fewer** at `--level ultra` (deduped by lemma):
+
+```
+Review pull request make examine change file verify code introduce regression
+exist behavior important check author add test untested break debug later
+confirm documentation updated reflect commit message notice security
+vulnerability unsanitized user input hardcoded must flag merge
+```
+
+No articles. No prepositions. No adverbs. No repeated words. Only the content
+words that carry meaning, deduplicated, in reading order. Every prompt, every
+turn — the savings compound. If a reduction is not smaller than the input, turo
+passes the original through unchanged.
 
 Install turo once and any coding agent that can shell out to a binary — Claude Code, Codex, Gemini, Cursor, Windsurf, Cline, Copilot, and 20+ more — pipes its context through the same reducer. Code, paths, and identifiers pass through untouched.
 
