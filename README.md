@@ -47,13 +47,18 @@ turo --version                    # print version
 |-------|--------------|-----------|
 | **lite** | Adjectives, nouns, verbs, and leftover adverbs/prepositions | ~65% |
 | **full** (default) | Adjectives, nouns, verbs | ~70% |
-| **ultra** | Nouns and verbs only, deduplicated by word stem | ~70%+ |
+| **ultra** | Nouns and verbs only, deduplicated by lemma (base form) | ~70%+ |
 
 ```bash
 echo "the quick brown fox jumps over the lazy dog" | turo --level lite   # quick brown fox jumps over lazy dog
 echo "the quick brown fox jumps over the lazy dog" | turo --level full   # quick brown fox jumps lazy dog
 echo "the quick brown fox jumps over the lazy dog" | turo --level ultra  # fox jump dog
 ```
+
+In **ultra**, inflections of the same word collapse to one token by their
+dictionary base form: `goes`, `went`, `going` -> `go`; `children` -> `child`;
+`servers` -> `server`. A reduction is only applied when it lands on a real
+dictionary word, so no mangled non-words are ever emitted.
 
 Set default via `TURO_LEVEL` env var.
 

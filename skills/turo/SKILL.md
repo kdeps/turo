@@ -47,7 +47,7 @@ Zero filler words, no repeats. ~70% fewer input tokens on real docs.
 |-------|-------|---------|
 | lite  | adj, noun, verb, leftover adverbs/preps | `turo --level lite` |
 | full  | adj, noun, verb (default) | `turo --level full` |
-| ultra | nouns + verbs, deduped by stem | `turo --level ultra` |
+| ultra | nouns + verbs, deduped by lemma (base form) | `turo --level ultra` |
 
 ## Modes
 

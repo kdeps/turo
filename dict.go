@@ -84,6 +84,17 @@ func parseDictLine(line string) (string, wordClass) {
 	}
 }
 
+// dictKnows reports whether w is a classified headword in the embedded
+// dictionary. Used by lemma to prefer reductions that land on a real word.
+func dictKnows(w string) bool {
+	d := loadDict()
+	if len(d) == 0 {
+		return false
+	}
+	_, ok := d[strings.ToLower(w)]
+	return ok
+}
+
 func dictClassify(w string) string {
 	if conjunctions[w] {
 		return "other"

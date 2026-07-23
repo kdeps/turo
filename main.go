@@ -297,6 +297,101 @@ func stem(w string) string {
 	return w
 }
 
+// irregularLemma maps irregular inflections to their base form. Suffix
+// stemming cannot reach these ("went" -> "go", "children" -> "child"), so they
+// are looked up directly. Only forms that carry content survive to this point;
+// irregular auxiliaries (be/have/do) are already dropped as stop words.
+var irregularLemma = map[string]string{
+	// irregular verbs (past / past participle -> base)
+	"went": "go", "gone": "go",
+	"made": "make",
+	"ran": "run",
+	"said": "say",
+	"saw": "see", "seen": "see",
+	"took": "take", "taken": "take",
+	"got": "get", "gotten": "get",
+	"gave": "give", "given": "give",
+	"found": "find",
+	"wrote": "write", "written": "write",
+	"built": "build",
+	"brought": "bring",
+	"bought": "buy",
+	"caught": "catch",
+	"taught": "teach",
+	"thought": "think",
+	"sought": "seek",
+	"came": "come",
+	"became": "become",
+	"began": "begin", "begun": "begin",
+	"broke": "break", "broken": "break",
+	"chose": "choose", "chosen": "choose",
+	"drove": "drive", "driven": "drive",
+	"fell": "fall", "fallen": "fall",
+	"felt": "feel",
+	"held": "hold",
+	"kept": "keep",
+	"knew": "know", "known": "know",
+	"led": "lead",
+	"left": "leave",
+	"lost": "lose",
+	"meant": "mean",
+	"met": "meet",
+	"paid": "pay",
+	"sent": "send",
+	"sold": "sell",
+	"spent": "spend",
+	"stood": "stand",
+	"told": "tell",
+	"understood": "understand",
+	"won": "win",
+	"grew": "grow", "grown": "grow",
+	"threw": "throw", "thrown": "throw",
+	"drew": "draw", "drawn": "draw",
+	"ate": "eat", "eaten": "eat",
+	"spoke": "speak", "spoken": "speak",
+	"rose": "rise", "risen": "rise",
+	"shown": "show",
+	// irregular plurals (plural -> singular)
+	"children": "child",
+	"men": "man", "women": "woman",
+	"feet": "foot", "teeth": "tooth",
+	"mice": "mouse",
+	"people": "person",
+	"leaves": "leaf", "lives": "life", "wives": "wife", "knives": "knife",
+	"indices": "index", "vertices": "vertex", "matrices": "matrix",
+	// irregular comparatives / superlatives (-> base adjective)
+	"better": "good", "best": "good",
+	"worse": "bad", "worst": "bad",
+}
+
+// lemma reduces a word to its dictionary base form for deduplication so that
+// different inflections of the same word collapse to one token. A reduction is
+// accepted only when it lands on a word the dictionary knows, so mangled
+// non-words ("serv", "proces") are never emitted — those can tokenize to MORE
+// tokens than the original. When no reduction reaches a real word, the original
+// surface form is kept. Order:
+//  1. irregular table ("went" -> "go", "children" -> "child")
+//  2. drop a trailing "s" if that yields a known word ("servers" -> "server",
+//     "sees" -> "see", "runs" -> "run")
+//  3. suffix stemming, accepted only if it lands on a known word
+//     ("running" -> "run", "processes" -> "process", "going" -> "go")
+//  4. otherwise keep the word unchanged
+// Used only in the most aggressive level.
+func lemma(w string) string {
+	if l, ok := irregularLemma[w]; ok {
+		return l
+	}
+	if len(w) > 3 && strings.HasSuffix(w, "s") {
+		if alt := w[:len(w)-1]; dictKnows(alt) {
+			return alt
+		}
+	}
+	if s := stem(w); s != w && dictKnows(s) {
+		return s
+	}
+	return w
+}
+
 // keepClass reports whether a word of the given class survives at a level.
 // lite keeps the most (adjectives, nouns, verbs, and leftover adverbs/preps);
 // full drops the leftovers; ultra keeps only nouns and verbs.
@@ -315,7 +410,7 @@ func keepClass(level, class string) bool {
 // deduplicated content words in reading order. No arrows, no emoji, no
 // repeated nodes — those all cost tokens. Stopwords are dropped; the surviving
 // words carry the meaning. ultra additionally drops adjectives and dedupes by
-// stem so "runs" and "running" collapse to one token.
+// lemma so "runs", "running", and "ran" all collapse to one token.
 func extractTermGraph(text string, level string) string {
 	fields := strings.FieldsFunc(text, func(r rune) bool {
 		return r == '.' || r == '!' || r == '?' || r == '\n' || r == '\t' ||
@@ -338,7 +433,7 @@ func extractTermGraph(text string, level string) string {
 		}
 		key := lower
 		if level == "ultra" {
-			key = stem(lower) // collapse inflections in the most aggressive mode
+			key = lemma(lower) // collapse inflections in the most aggressive mode
 		}
 		if seen[key] {
 			continue

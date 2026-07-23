@@ -99,3 +99,31 @@ func TestStem(t *testing.T) {
 	}
 }
 
+func TestLemma(t *testing.T) {
+	cases := map[string]string{
+		// irregular verbs
+		"went": "go", "gone": "go", "saw": "see", "seen": "see", "ran": "run",
+		// irregular plurals / comparatives
+		"children": "child", "mice": "mouse", "men": "man",
+		"better": "good", "worst": "bad",
+		// regular inflections that reduce to a known base
+		"goes": "go", "going": "go", "runs": "run", "running": "run",
+		"sees": "see", "servers": "server", "processes": "process",
+		// already-base words are unchanged
+		"go": "go", "server": "server", "fox": "fox",
+	}
+	for in, want := range cases {
+		if got := lemma(in); got != want {
+			t.Errorf("lemma(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestParseToGraph_UltraLemmaDedup(t *testing.T) {
+	// Every inflection of go/fox/run collapses to one token each.
+	got := parseToGraph("the fox goes and the fox went and foxes run while it ran", "ultra", 0)
+	if got != "fox go run" {
+		t.Fatalf("expected lemma-deduped %q, got %q", "fox go run", got)
+	}
+}
+
