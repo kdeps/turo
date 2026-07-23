@@ -31,6 +31,7 @@ func main() {
 	var (
 		level       string
 		maxDepth    int
+		passes      int
 		preamble    bool
 		synonyms    bool
 		filler      bool
@@ -39,6 +40,7 @@ func main() {
 
 	flag.StringVar(&level, "level", resolveDefaultLevel(), "compression level: lite, full, ultra")
 	flag.IntVar(&maxDepth, "max-depth", 0, "max transitive edge depth (0=unlimited)")
+	flag.IntVar(&passes, "passes", 4, "max reduction passes; stops early once output stops shrinking")
 	flag.BoolVar(&preamble, "preamble", false, "wrap output in a tagged block for system prompt injection")
 	flag.BoolVar(&filler, "filler", envDefaultOn("TURO_FILLER"), "delete filler/pleasantry/hedge words first (on; disable with -filler=false or TURO_FILLER=off)")
 	flag.BoolVar(&synonyms, "synonyms", envDefaultOn("TURO_SYNONYMS"), "replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
@@ -54,24 +56,45 @@ func main() {
 		fmt.Fprintf(os.Stderr, "turo: invalid level %q — use lite, full, or ultra\n", level)
 		os.Exit(1)
 	}
+	if passes < 1 {
+		passes = 1
+	}
 
 	input, err := readInput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "turo: %v\n", err)
 		os.Exit(1)
 	}
-	if filler {
-		input = shrinkProse(input) // stage 1: delete filler/pleasantry/hedge words
-	}
-	if synonyms {
-		input = shortenSynonyms(input) // stage 2: token-cheaper synonym swap
-	}
-	graph := parseToGraph(input, level, maxDepth) // stage 3: reduce to content words
+
+	graph := reduce(input, level, maxDepth, passes, filler, synonyms)
 
 	if preamble {
 		graph = wrapPreamble(graph)
 	}
 	fmt.Print(graph)
+}
+
+// reduce runs the three-stage pipeline (filler -> synonyms -> reduce) up to
+// `passes` times, stopping as soon as a pass no longer changes the output.
+// Later passes flatten structure left by earlier ones and dedupe across it, so
+// large structured docs keep shrinking for a pass or two before converging.
+func reduce(text, level string, maxDepth, passes int, filler, synonyms bool) string {
+	out := text
+	for i := 0; i < passes; i++ {
+		step := out
+		if filler {
+			step = shrinkProse(step) // stage 1: delete filler/pleasantry/hedge words
+		}
+		if synonyms {
+			step = shortenSynonyms(step) // stage 2: token-cheaper synonym swap
+		}
+		step = parseToGraph(step, level, maxDepth) // stage 3: reduce to content words
+		if step == out {
+			break // fixpoint — further passes cannot help
+		}
+		out = step
+	}
+	return out
 }
 
 // wrapPreamble wraps reduced text in a tagged block that tells the LLM the
