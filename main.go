@@ -40,7 +40,7 @@ func main() {
 
 	flag.StringVar(&level, "level", resolveDefaultLevel(), "compression level: lite, full, ultra")
 	flag.IntVar(&maxDepth, "max-depth", 0, "max transitive edge depth (0=unlimited)")
-	flag.IntVar(&passes, "passes", 4, "max reduction passes; stops early once output stops shrinking")
+	flag.IntVar(&passes, "passes", 0, "max reduction passes; 0 = run until the output stops changing")
 	flag.BoolVar(&preamble, "preamble", false, "wrap output in a tagged block for system prompt injection")
 	flag.BoolVar(&filler, "filler", envDefaultOn("TURO_FILLER"), "delete filler/pleasantry/hedge words first (on; disable with -filler=false or TURO_FILLER=off)")
 	flag.BoolVar(&synonyms, "synonyms", envDefaultOn("TURO_SYNONYMS"), "replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
@@ -56,10 +56,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "turo: invalid level %q — use lite, full, or ultra\n", level)
 		os.Exit(1)
 	}
-	if passes < 1 {
-		passes = 1
-	}
-
 	input, err := readInput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "turo: %v\n", err)
@@ -74,13 +70,22 @@ func main() {
 	fmt.Print(graph)
 }
 
-// reduce runs the three-stage pipeline (filler -> synonyms -> reduce) up to
-// `passes` times, stopping as soon as a pass no longer changes the output.
-// Later passes flatten structure left by earlier ones and dedupe across it, so
-// large structured docs keep shrinking for a pass or two before converging.
+// maxConvergePasses caps the "run until fixpoint" mode so a pathological
+// synonym cycle can never loop forever.
+const maxConvergePasses = 100
+
+// reduce runs the three-stage pipeline (filler -> synonyms -> reduce)
+// repeatedly, stopping as soon as a pass no longer changes the output. Later
+// passes flatten structure left by earlier ones and dedupe across it, so large
+// structured docs keep shrinking for a pass or two before converging. passes>0
+// caps the number of iterations; passes<=0 runs to convergence (safety-capped).
 func reduce(text, level string, maxDepth, passes int, filler, synonyms bool) string {
+	limit := passes
+	if limit <= 0 {
+		limit = maxConvergePasses
+	}
 	out := text
-	for i := 0; i < passes; i++ {
+	for i := 0; i < limit; i++ {
 		step := out
 		if filler {
 			step = shrinkProse(step) // stage 1: delete filler/pleasantry/hedge words

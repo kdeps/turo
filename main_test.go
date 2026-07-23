@@ -187,15 +187,15 @@ func TestReduceMultiPass(t *testing.T) {
 		t.Fatalf("multi-pass larger than single: 1=%d 4=%d", one, four)
 	}
 
-	// Fixpoint: re-reducing an already-converged result changes nothing.
-	fp := reduce(txt, "ultra", 0, 20, true, true)
-	if again := reduce(fp, "ultra", 0, 20, true, true); again != fp {
-		t.Fatalf("expected fixpoint stability:\n%q\n%q", fp, again)
+	// passes <= 0 runs to convergence; the result must be a fixpoint.
+	conv := reduce(txt, "ultra", 0, 0, true, true)
+	if again := reduce(conv, "ultra", 0, 0, true, true); again != conv {
+		t.Fatalf("convergence not stable:\n%q\n%q", conv, again)
 	}
 
-	// passes < 1 is clamped to a single pass by main; reduce itself honors 1.
-	if got := reduce(txt, "full", 0, 1, true, true); got == "" {
-		t.Fatal("single pass produced empty output")
+	// Convergence is at least as aggressive as a single pass.
+	if estimateTokens(conv) > estimateTokens(reduce(txt, "ultra", 0, 1, true, true)) {
+		t.Fatal("converged output larger than a single pass")
 	}
 }
 

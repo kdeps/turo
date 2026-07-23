@@ -36,7 +36,7 @@ Install turo once and any coding agent that can shell out to a binary — Claude
 cat CLAUDE.md | turo              # text -> deduped content words
 echo "fox jumps over dog" | turo  # pipe mode
 turo --preamble                   # wrap for system prompt injection
-turo -passes 1                    # single pass (default is 4)
+turo -passes 1                    # single pass (default runs to convergence)
 turo -filler=false                # skip filler deletion
 turo -synonyms=false              # skip the synonym pass (keep words verbatim)
 turo --version                    # print version
@@ -59,11 +59,12 @@ text -> [1] delete filler -> [2] swap for cheaper synonyms -> [3] reduce to cont
 3. **Reduction** drops the remaining stopwords, keeps content words by part of
    speech, deduplicates, and (ultra) collapses inflections by lemma.
 
-The whole pipeline runs up to `-passes` times (default 4), stopping early once
-the output stops shrinking. The first pass keeps document structure (headings,
-per-section bodies); later passes flatten that and dedupe across it, so large
-structured docs keep shrinking for a pass or two — a README drops 522 -> 390
-tokens between pass 1 and 2. Set `-passes 1` to keep it single-shot.
+The whole pipeline repeats until the output stops changing (`-passes 0`, the
+default; a positive `-passes N` caps the count). The first pass keeps document
+structure (headings, per-section bodies); later passes flatten that and dedupe
+across it, so large structured docs keep shrinking before converging — this
+README goes 522 (1 pass) -> 376 tokens (converged, ~29 passes). Set `-passes 1`
+to keep it single-shot.
 
 turo never emits output larger than the input: if a stage does not save tokens,
 the text passes through unchanged.
