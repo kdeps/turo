@@ -131,6 +131,17 @@ func TestShortenSynonyms(t *testing.T) {
 	}
 }
 
+func TestApplyGloss(t *testing.T) {
+	// A same-POS defining word replaces the original; unmapped/mismatched
+	// words are left alone.
+	if got := applyGloss("demonstrate"); got != "show" {
+		t.Fatalf("expected demonstrate->show, got %q", got)
+	}
+	if out := applyGloss("kubernetes"); out != "kubernetes" {
+		t.Fatalf("unmapped word should be unchanged, got %q", out)
+	}
+}
+
 func TestEnvDefaultOn(t *testing.T) {
 	t.Setenv("TURO_TEST_DEF", "")
 	if !envDefaultOn("TURO_TEST_DEF") {
@@ -181,20 +192,20 @@ func TestReduceMultiPass(t *testing.T) {
 	// Structured text repeats words across sections; a second pass flattens
 	// and dedupes, so more passes never yield a larger result.
 	txt := "# Server\nthe server handles the request quickly\n# Client\nthe client sends the request to the server\n"
-	one := estimateTokens(reduce(txt, "full", 0, 1, true, true))
-	four := estimateTokens(reduce(txt, "full", 0, 4, true, true))
+	one := estimateTokens(reduce(txt, "full", 0, 1, true, true, false))
+	four := estimateTokens(reduce(txt, "full", 0, 4, true, true, false))
 	if four > one {
 		t.Fatalf("multi-pass larger than single: 1=%d 4=%d", one, four)
 	}
 
 	// passes <= 0 runs to convergence; the result must be a fixpoint.
-	conv := reduce(txt, "ultra", 0, 0, true, true)
-	if again := reduce(conv, "ultra", 0, 0, true, true); again != conv {
+	conv := reduce(txt, "ultra", 0, 0, true, true, false)
+	if again := reduce(conv, "ultra", 0, 0, true, true, false); again != conv {
 		t.Fatalf("convergence not stable:\n%q\n%q", conv, again)
 	}
 
 	// Convergence is at least as aggressive as a single pass.
-	if estimateTokens(conv) > estimateTokens(reduce(txt, "ultra", 0, 1, true, true)) {
+	if estimateTokens(conv) > estimateTokens(reduce(txt, "ultra", 0, 1, true, true, false)) {
 		t.Fatal("converged output larger than a single pass")
 	}
 }

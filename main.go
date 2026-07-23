@@ -35,6 +35,7 @@ func main() {
 		preamble    bool
 		synonyms    bool
 		filler      bool
+		gloss       bool
 		showVersion bool
 	)
 
@@ -44,6 +45,7 @@ func main() {
 	flag.BoolVar(&preamble, "preamble", false, "wrap output in a tagged block for system prompt injection")
 	flag.BoolVar(&filler, "filler", envDefaultOn("TURO_FILLER"), "delete filler/pleasantry/hedge words first (on; disable with -filler=false or TURO_FILLER=off)")
 	flag.BoolVar(&synonyms, "synonyms", envDefaultOn("TURO_SYNONYMS"), "replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
+	flag.BoolVar(&gloss, "gloss", envTrue("TURO_GLOSS"), "swap words for the shortest defining word in their dictionary definition (very lossy; off)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.Parse()
 
@@ -62,7 +64,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	graph := reduce(input, level, maxDepth, passes, filler, synonyms)
+	graph := reduce(input, level, maxDepth, passes, filler, synonyms, gloss)
 
 	if preamble {
 		graph = wrapPreamble(graph)
@@ -79,7 +81,7 @@ const maxConvergePasses = 100
 // passes flatten structure left by earlier ones and dedupe across it, so large
 // structured docs keep shrinking for a pass or two before converging. passes>0
 // caps the number of iterations; passes<=0 runs to convergence (safety-capped).
-func reduce(text, level string, maxDepth, passes int, filler, synonyms bool) string {
+func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss bool) string {
 	limit := passes
 	if limit <= 0 {
 		limit = maxConvergePasses
@@ -93,7 +95,10 @@ func reduce(text, level string, maxDepth, passes int, filler, synonyms bool) str
 		if synonyms {
 			step = shortenSynonyms(step) // stage 2: token-cheaper synonym swap
 		}
-		step = parseToGraph(step, level, maxDepth) // stage 3: reduce to content words
+		if gloss {
+			step = applyGloss(step) // stage 3: shortest defining-word swap (opt-in)
+		}
+		step = parseToGraph(step, level, maxDepth) // stage 4: reduce to content words
 		if step == out {
 			break // fixpoint — further passes cannot help
 		}
@@ -137,12 +142,20 @@ func envDefaultOn(name string) bool {
 }
 
 // shortenSynonyms replaces each word with a token-cheaper synonym from the
-// baked WordNet map, but only when the synonym shares the word's dictionary
-// part of speech. It is lossy — WordNet polysemy means a swap can shift sense —
-// so it is opt-in (--synonyms / TURO_SYNONYMS). Non-letter runs (punctuation,
-// code symbols, whitespace) pass through so the text structure is preserved for
-// the reduction stage that follows.
-func shortenSynonyms(text string) string {
+// baked WordNet map. Lossy (WordNet polysemy can shift sense), so it is opt-in
+// via --synonyms / TURO_SYNONYMS.
+func shortenSynonyms(text string) string { return swapWords(text, shorterSynonym) }
+
+// applyGloss replaces each word with the shortest defining word from its own
+// dictionary definition. Very lossy — definitions are prose, not synonyms — so
+// it is opt-in via -gloss / TURO_GLOSS and off by default.
+func applyGloss(text string) string { return swapWords(text, definitionGloss) }
+
+// swapWords replaces each alphabetic word with its mapping when the replacement
+// shares the word's dictionary part of speech. Non-letter runs (punctuation,
+// code symbols, whitespace) pass through so text structure is preserved for the
+// reduction stage that follows.
+func swapWords(text string, m map[string]string) string {
 	var b, word strings.Builder
 	flush := func() {
 		if word.Len() == 0 {
@@ -150,7 +163,7 @@ func shortenSynonyms(text string) string {
 		}
 		w := word.String()
 		lw := strings.ToLower(w)
-		if s, ok := shorterSynonym[lw]; ok && sameClass(lw, s) {
+		if s, ok := m[lw]; ok && sameClass(lw, s) {
 			b.WriteString(s)
 		} else {
 			b.WriteString(w)

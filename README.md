@@ -39,8 +39,15 @@ turo --preamble                   # wrap for system prompt injection
 turo -passes 1                    # single pass (default runs to convergence)
 turo -filler=false                # skip filler deletion
 turo -synonyms=false              # skip the synonym pass (keep words verbatim)
+turo -gloss                       # extra: swap words for their shortest defining word (very lossy)
 turo --version                    # print version
 ```
+
+`-gloss` (off by default) is an experimental extra stage that replaces each word
+with the shortest same-part-of-speech word from its own dictionary definition
+(`approach` -> `come`). Definitions are prose, not synonyms, so it is much
+lossier than `-synonyms` — use it only when you want maximum compression and
+readability does not matter.
 
 ## Pipeline
 
