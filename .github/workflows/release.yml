@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write # keyless cosign signing (Sigstore OIDC)
 
 jobs:
   goreleaser:
@@ -19,6 +20,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - uses: sigstore/cosign-installer@v3
+
+      - uses: anchore/sbom-action/download-syft@v0
 
       - uses: goreleaser/goreleaser-action@v6
         with:
