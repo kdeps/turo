@@ -30,4 +30,4 @@ jobs:
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
           # Cross-repo push to kdeps/homebrew-tap; the default GITHUB_TOKEN is
           # repo-scoped and gets a 403, so a PAT with write access is required.
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN_TURO }}
