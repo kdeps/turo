@@ -38,9 +38,30 @@ Turo is a skill/plugin for Claude Code, Codex, Gemini, Cursor, Windsurf, Cline, 
 cat CLAUDE.md | turo              # text -> deduped content words
 echo "fox jumps over dog" | turo  # pipe mode
 turo --preamble                   # wrap for system prompt injection
+turo -filler=false                # skip filler deletion
 turo -synonyms=false              # skip the synonym pass (keep words verbatim)
 turo --version                    # print version
 ```
+
+## Pipeline
+
+Every run is three stages, each on by default:
+
+```text
+text -> [1] delete filler -> [2] swap for cheaper synonyms -> [3] reduce to content words
+```
+
+1. **Filler deletion** removes pleasantries, hedges, and leaders that survive
+   word-level stopword lists (`please`, `I think`, `of course`, `let me`),
+   while protecting code, paths, URLs, and identifiers verbatim. Disable with
+   `-filler=false` / `TURO_FILLER=off`.
+2. **Synonym swap** replaces words with a fewer-token synonym (see below).
+   Disable with `-synonyms=false` / `TURO_SYNONYMS=off`.
+3. **Reduction** drops the remaining stopwords, keeps content words by part of
+   speech, deduplicates, and (ultra) collapses inflections by lemma.
+
+turo never emits output larger than the input: if a stage does not save tokens,
+the text passes through unchanged.
 
 ### Synonym substitution (on by default, lossy)
 

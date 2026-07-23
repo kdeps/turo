@@ -131,16 +131,38 @@ func TestShortenSynonyms(t *testing.T) {
 	}
 }
 
-func TestSynonymsDefault(t *testing.T) {
-	t.Setenv("TURO_SYNONYMS", "")
-	if !synonymsDefault() {
-		t.Fatal("synonyms should default on when unset")
+func TestEnvDefaultOn(t *testing.T) {
+	t.Setenv("TURO_TEST_DEF", "")
+	if !envDefaultOn("TURO_TEST_DEF") {
+		t.Fatal("should default on when unset")
 	}
 	for _, off := range []string{"off", "0", "false", "no"} {
-		t.Setenv("TURO_SYNONYMS", off)
-		if synonymsDefault() {
-			t.Fatalf("TURO_SYNONYMS=%q should disable synonyms", off)
+		t.Setenv("TURO_TEST_DEF", off)
+		if envDefaultOn("TURO_TEST_DEF") {
+			t.Fatalf("%q should be falsey", off)
 		}
+	}
+}
+
+func TestShrinkProse(t *testing.T) {
+	// Filler, pleasantry, hedge, and article words are deleted; the meaning
+	// words survive.
+	got := shrinkProse("Please, I think you should just use the tool.")
+	for _, drop := range []string{"Please", "I think", "just", "the "} {
+		if strings.Contains(got, drop) {
+			t.Fatalf("filler %q survived: %q", drop, got)
+		}
+	}
+	for _, keep := range []string{"use", "tool"} {
+		if !strings.Contains(got, keep) {
+			t.Fatalf("content word %q dropped: %q", keep, got)
+		}
+	}
+	// Code and paths are protected verbatim.
+	code := "Please run `make build` and edit pkg/agent/loop.go now."
+	out := shrinkProse(code)
+	if !strings.Contains(out, "`make build`") || !strings.Contains(out, "pkg/agent/loop.go") {
+		t.Fatalf("protected segment altered: %q", out)
 	}
 }
 

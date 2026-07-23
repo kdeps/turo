@@ -33,13 +33,15 @@ func main() {
 		maxDepth    int
 		preamble    bool
 		synonyms    bool
+		filler      bool
 		showVersion bool
 	)
 
 	flag.StringVar(&level, "level", resolveDefaultLevel(), "compression level: lite, full, ultra")
 	flag.IntVar(&maxDepth, "max-depth", 0, "max transitive edge depth (0=unlimited)")
 	flag.BoolVar(&preamble, "preamble", false, "wrap output in a tagged block for system prompt injection")
-	flag.BoolVar(&synonyms, "synonyms", synonymsDefault(), "first replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
+	flag.BoolVar(&filler, "filler", envDefaultOn("TURO_FILLER"), "delete filler/pleasantry/hedge words first (on; disable with -filler=false or TURO_FILLER=off)")
+	flag.BoolVar(&synonyms, "synonyms", envDefaultOn("TURO_SYNONYMS"), "replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.Parse()
 
@@ -58,10 +60,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "turo: %v\n", err)
 		os.Exit(1)
 	}
-	if synonyms {
-		input = shortenSynonyms(input) // stage 1: token-cheaper synonym swap
+	if filler {
+		input = shrinkProse(input) // stage 1: delete filler/pleasantry/hedge words
 	}
-	graph := parseToGraph(input, level, maxDepth) // stage 2: reduce
+	if synonyms {
+		input = shortenSynonyms(input) // stage 2: token-cheaper synonym swap
+	}
+	graph := parseToGraph(input, level, maxDepth) // stage 3: reduce to content words
 
 	if preamble {
 		graph = wrapPreamble(graph)
@@ -93,10 +98,10 @@ func envTrue(name string) bool {
 	return false
 }
 
-// synonymsDefault is the default for --synonyms: on, unless TURO_SYNONYMS is
-// set to a falsey value.
-func synonymsDefault() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("TURO_SYNONYMS"))) {
+// envDefaultOn returns the default for an on-by-default flag: true unless the
+// named environment variable is set to a falsey value.
+func envDefaultOn(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
 	case "0", "false", "no", "off":
 		return false
 	}
@@ -374,24 +379,24 @@ var irregularLemma = map[string]string{
 	// irregular verbs (past / past participle -> base)
 	"went": "go", "gone": "go",
 	"made": "make",
-	"ran": "run",
+	"ran":  "run",
 	"said": "say",
-	"saw": "see", "seen": "see",
+	"saw":  "see", "seen": "see",
 	"took": "take", "taken": "take",
 	"got": "get", "gotten": "get",
 	"gave": "give", "given": "give",
 	"found": "find",
 	"wrote": "write", "written": "write",
-	"built": "build",
+	"built":   "build",
 	"brought": "bring",
-	"bought": "buy",
-	"caught": "catch",
-	"taught": "teach",
+	"bought":  "buy",
+	"caught":  "catch",
+	"taught":  "teach",
 	"thought": "think",
-	"sought": "seek",
-	"came": "come",
-	"became": "become",
-	"began": "begin", "begun": "begin",
+	"sought":  "seek",
+	"came":    "come",
+	"became":  "become",
+	"began":   "begin", "begun": "begin",
 	"broke": "break", "broken": "break",
 	"chose": "choose", "chosen": "choose",
 	"drove": "drive", "driven": "drive",
@@ -400,20 +405,20 @@ var irregularLemma = map[string]string{
 	"held": "hold",
 	"kept": "keep",
 	"knew": "know", "known": "know",
-	"led": "lead",
-	"left": "leave",
-	"lost": "lose",
-	"meant": "mean",
-	"met": "meet",
-	"paid": "pay",
-	"sent": "send",
-	"sold": "sell",
-	"spent": "spend",
-	"stood": "stand",
-	"told": "tell",
+	"led":        "lead",
+	"left":       "leave",
+	"lost":       "lose",
+	"meant":      "mean",
+	"met":        "meet",
+	"paid":       "pay",
+	"sent":       "send",
+	"sold":       "sell",
+	"spent":      "spend",
+	"stood":      "stand",
+	"told":       "tell",
 	"understood": "understand",
-	"won": "win",
-	"grew": "grow", "grown": "grow",
+	"won":        "win",
+	"grew":       "grow", "grown": "grow",
 	"threw": "throw", "thrown": "throw",
 	"drew": "draw", "drawn": "draw",
 	"ate": "eat", "eaten": "eat",
@@ -422,9 +427,9 @@ var irregularLemma = map[string]string{
 	"shown": "show",
 	// irregular plurals (plural -> singular)
 	"children": "child",
-	"men": "man", "women": "woman",
+	"men":      "man", "women": "woman",
 	"feet": "foot", "teeth": "tooth",
-	"mice": "mouse",
+	"mice":   "mouse",
 	"people": "person",
 	"leaves": "leaf", "lives": "life", "wives": "wife", "knives": "knife",
 	"indices": "index", "vertices": "vertex", "matrices": "matrix",
@@ -442,6 +447,7 @@ var irregularLemma = map[string]string{
 //  2. the first inflectional base form the dictionary recognizes
 //     ("creating" -> "create", "servers" -> "server", "sees" -> "see")
 //  3. otherwise keep the word unchanged
+//
 // Used only in the most aggressive level.
 func lemma(w string) string {
 	if l, ok := irregularLemma[w]; ok {
