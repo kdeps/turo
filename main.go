@@ -51,6 +51,10 @@ func main() {
 	installAgentsFlag := flag.Bool("install-agents", false, "register the turo skill with detected coding agents, then exit")
 	flag.BoolVar(&installAll, "all", false, "with -install-agents: register every supported agent, not just detected ones")
 	listAgentsFlag := flag.Bool("list-agents", false, "list supported coding agents and whether each is detected, then exit")
+	proxyFlag := flag.Bool("proxy", false, "run an OpenAI/Anthropic-compatible reverse proxy that reduces requests")
+	listen := flag.String("listen", "127.0.0.1:8787", "with -proxy: address to listen on")
+	upstream := flag.String("upstream", envOr("OPENAI_BASE_URL", "https://api.openai.com"), "with -proxy: real LLM base URL")
+	proxyAll := flag.Bool("proxy-all", false, "with -proxy: reduce every role (system + assistant too), not just user + tool")
 	flag.Parse()
 
 	if showVersion {
@@ -70,6 +74,19 @@ func main() {
 		fmt.Fprintf(os.Stderr, "turo: invalid level %q — use lite, full, or ultra\n", level)
 		os.Exit(1)
 	}
+
+	if *proxyFlag {
+		err := runProxy(proxyConfig{
+			listen: *listen, upstream: strings.TrimSuffix(*upstream, "/v1"),
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "turo proxy: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	input, err := readInput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "turo: %v\n", err)
@@ -132,6 +149,14 @@ func wrapPreamble(graph string) string {
 		"Code, paths, and identifiers are verbatim.\n" +
 		graph + "\n" +
 		"</context-graph>\n"
+}
+
+// envOr returns the environment variable value, or fallback when unset/empty.
+func envOr(name, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		return v
+	}
+	return fallback
 }
 
 // envTrue reports whether an environment variable is set to a truthy value.

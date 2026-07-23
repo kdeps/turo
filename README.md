@@ -146,6 +146,30 @@ dictionary word, so no mangled non-words are ever emitted.
 
 Set default via `TURO_LEVEL` env var.
 
+## Proxy — reduce every request for any agent
+
+To compress **all** input for an agent that turo can't reach from the inside
+(Claude Code, Cursor, ...), run turo as an OpenAI/Anthropic-compatible reverse
+proxy and point the agent's base URL at it:
+
+```bash
+turo -proxy -upstream https://api.openai.com   # listens on 127.0.0.1:8787
+```
+
+```bash
+export OPENAI_BASE_URL=http://127.0.0.1:8787/v1
+```
+
+Every `/chat/completions` (and Anthropic `/messages`) request has its message
+content reduced before it reaches the real endpoint; the response streams back
+untouched. By default only `user` and `tool` content is reduced (system and
+assistant history are left verbatim, since they are lossier to touch) — pass
+`-proxy-all` to reduce every role. Auth headers pass through; non-chat paths are
+forwarded unchanged.
+
+kdeps does not need this: in agent mode it already pipes the preamble, input,
+tool results, and history through turo before every call.
+
 ## Integration
 
 `npx turo` installs the binary **and** registers the turo skill + `/turo`
