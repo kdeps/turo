@@ -42,6 +42,37 @@ confirm documentation updated reflect commit message notice security
 vulnerability unsanitized user input hardcoded must flag merge
 ```
 
+Or with the **wenyan** modes, which additionally swap words for a single
+Classical Chinese character (for CJK-tokenizer models — see [wenyan
+modes](#wenyan-modes-cjk-tokenizer-models-only)):
+
+```
+--level wenyan        # full base + 文言 (62 cl100k tok on this input)
+Reviewing 引 request 作 examine changed files verify 新碼 introduce regressions
+existing behavior important check author added appropriate tests functionality
+untested 破 subtle ways difficult debug later 亦 confirm documentation updated
+reflect changes commit messages explain notice potential security
+vulnerabilities unsanitized 戶入 hardcoded credentials must flag merged
+
+--level wenyan-all    # lite base, keeps more words (69 cl100k tok)
+Reviewing 引 request 作 carefully examine changed files verify 新碼 introduce
+regressions existing behavior important check whether author added appropriate
+tests functionality because untested 破 subtle ways difficult debug later 亦
+confirm documentation updated reflect changes commit messages clearly explain
+why if notice potential security vulnerabilities unsanitized 戶入 hardcoded
+credentials must flag immediately merged
+
+--level ultra-wenyan  # ultra base + 文言 (54 cl100k tok)
+Review 引 request 作 examine 變檔 verify 碼 introduce regression exist behavior
+important check author 增試 untested 破 debug later confirm documentation updated
+reflect commit message notice security vulnerability unsanitized 戶入 hardcoded
+must flag merge
+```
+
+On this technical English the core 文言 lexicon covers few words, so wenyan does
+not beat plain `ultra` here (and CJK chars cost more on OpenAI's cl100k) — it
+pays off on plain prose and CJK-tokenizer models. See below.
+
 No articles. No prepositions. No adverbs. No repeated words. Only the content
 words that carry meaning, deduplicated, in reading order. Every prompt, every
 turn — the savings compound. If a reduction is not smaller than the input, turo
