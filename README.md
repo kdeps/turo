@@ -39,8 +39,7 @@ Turo is a skill/plugin for Claude Code, Codex, Gemini, Cursor, Windsurf, Cline, 
 ```bash
 cat CLAUDE.md | turo              # text → graph
 echo "fox jumps over dog" | turo  # pipe mode
-turo --scan .                     # directory tree graph (walks the filesystem)
-turo --scan . --max-depth 3       # cap tree depth
+turo --max-depth 3                # cap transitive edge depth
 turo --preamble                   # wrap for system prompt injection
 turo --version                    # print version
 ```
@@ -88,7 +87,6 @@ Once turo is on PATH, any agent can also pipe context through it directly:
 ```bash
 cat CLAUDE.md | turo --preamble    # compact system prompt
 cat error.log | turo               # graph from log output
-turo --scan . --preamble           # project tree as graph
 ```
 
 Set `TURO_LEVEL=ultra` for maximum compression. `KDEPS_TURO=off` or `TURO_DISABLED=1` to disable.

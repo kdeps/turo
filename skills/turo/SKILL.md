@@ -14,7 +14,7 @@ verbs to objects. All filler words stripped. Only structural relationships remai
 
 ## Trigger
 
-`/turo` or `cat file.md | turo` or `turo --scan .`
+`/turo` or `cat file.md | turo` or `turo file.md`
 
 ## What it does
 
@@ -41,7 +41,6 @@ equivalent prose.
 | Mode | Command | Use |
 |------|---------|-----|
 | Stream | `cat file \| turo` | Convert text to graph |
-| Scan | `turo --scan .` | Directory tree from kartographer index |
 | Preamble | `turo --preamble` | Wrap graph for system prompt injection |
 
 ## Boundaries

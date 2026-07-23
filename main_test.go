@@ -1,8 +1,6 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -76,64 +74,3 @@ func TestStem(t *testing.T) {
 	}
 }
 
-func TestScanDir(t *testing.T) {
-	root := t.TempDir()
-	mustWrite(t, filepath.Join(root, "main.go"), "package main")
-	mustMkdir(t, filepath.Join(root, "pkg"))
-	mustWrite(t, filepath.Join(root, "pkg", "util.go"), "package pkg")
-	mustMkdir(t, filepath.Join(root, ".git")) // ignored
-	mustWrite(t, filepath.Join(root, ".git", "config"), "x")
-	mustMkdir(t, filepath.Join(root, "node_modules")) // ignored
-	mustWrite(t, filepath.Join(root, "node_modules", "dep.js"), "x")
-
-	got, err := scanDir(root, 0)
-	if err != nil {
-		t.Fatalf("scanDir: %v", err)
-	}
-	if !strings.Contains(got, "pkg/") || !strings.Contains(got, "util.go") || !strings.Contains(got, "main.go") {
-		t.Fatalf("expected tree entries, got:\n%s", got)
-	}
-	if strings.Contains(got, ".git") || strings.Contains(got, "node_modules") || strings.Contains(got, "dep.js") {
-		t.Fatalf("ignored dirs leaked into output:\n%s", got)
-	}
-}
-
-func TestScanDir_MaxDepth(t *testing.T) {
-	root := t.TempDir()
-	mustMkdir(t, filepath.Join(root, "a"))
-	mustMkdir(t, filepath.Join(root, "a", "b"))
-	mustWrite(t, filepath.Join(root, "a", "b", "deep.go"), "x")
-
-	got, err := scanDir(root, 1)
-	if err != nil {
-		t.Fatalf("scanDir: %v", err)
-	}
-	if !strings.Contains(got, "a/") {
-		t.Fatalf("expected top-level dir at depth 1, got:\n%s", got)
-	}
-	if strings.Contains(got, "deep.go") {
-		t.Fatalf("max-depth 1 should not descend to deep.go:\n%s", got)
-	}
-}
-
-func TestScanDir_NotADirectory(t *testing.T) {
-	f := filepath.Join(t.TempDir(), "file.txt")
-	mustWrite(t, f, "x")
-	if _, err := scanDir(f, 0); err == nil {
-		t.Fatal("expected error scanning a non-directory")
-	}
-}
-
-func mustWrite(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
-}
-
-func mustMkdir(t *testing.T, path string) {
-	t.Helper()
-	if err := os.MkdirAll(path, 0o750); err != nil {
-		t.Fatalf("mkdir %s: %v", path, err)
-	}
-}

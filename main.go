@@ -8,9 +8,8 @@
 //
 //	cat CLAUDE.md | turo              stream editor: text → graph
 //	turo file.md                      same, from file
-//	turo --scan [dir]                 directory tree graph (walks the filesystem)
 //	turo --preamble                   wrap output for system prompt injection
-//	turo --scan . --max-depth 4       cap tree depth
+//	turo --max-depth 4                cap transitive edge depth
 //	turo --version                    print version
 //
 // Binary on PATH, detected by kdeps like RTK.
@@ -22,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -34,14 +32,12 @@ func main() {
 		level       string
 		maxDepth    int
 		preamble    bool
-		scan        bool
 		showVersion bool
 	)
 
 	flag.StringVar(&level, "level", resolveDefaultLevel(), "compression level: lite, full, ultra")
 	flag.IntVar(&maxDepth, "max-depth", 0, "max transitive edge depth (0=unlimited)")
 	flag.BoolVar(&preamble, "preamble", false, "wrap output in a tagged block for system prompt injection")
-	flag.BoolVar(&scan, "scan", false, "graph a directory tree instead of reading text (dir arg or cwd)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.Parse()
 
@@ -55,26 +51,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	var graph string
-	if scan {
-		dir := flag.Arg(0)
-		if dir == "" {
-			dir = "."
-		}
-		g, err := scanDir(dir, maxDepth)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "turo: %v\n", err)
-			os.Exit(1)
-		}
-		graph = g
-	} else {
-		input, err := readInput()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "turo: %v\n", err)
-			os.Exit(1)
-		}
-		graph = parseToGraph(input, level, maxDepth)
+	input, err := readInput()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "turo: %v\n", err)
+		os.Exit(1)
 	}
+	graph := parseToGraph(input, level, maxDepth)
 
 	if preamble {
 		graph = wrapPreamble(graph)
@@ -118,67 +100,6 @@ func readInput() (string, error) {
 	}
 	// No input
 	return "", fmt.Errorf("no input — pipe text or provide a file")
-}
-
-// scanIgnore is the set of directory names skipped by --scan.
-var scanIgnore = map[string]bool{
-	".git": true, "node_modules": true, "vendor": true, ".idea": true,
-	".vscode": true, "dist": true, "build": true, ".next": true,
-	"__pycache__": true, ".venv": true, "target": true,
-}
-
-// scanDir walks dir and returns a compact tree graph: one indented line per
-// entry, directories before files. maxDepth caps recursion (0 = unlimited).
-// Hidden entries and common vendor/build dirs are skipped. Symlinks are not
-// followed, so the walk always terminates.
-func scanDir(dir string, maxDepth int) (string, error) {
-	info, err := os.Stat(dir)
-	if err != nil {
-		return "", err
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("%s is not a directory", dir)
-	}
-	var sb strings.Builder
-	sb.WriteString(filepath.Base(strings.TrimRight(dir, string(os.PathSeparator))) + "\n")
-	if err := scanWalk(dir, 1, maxDepth, &sb); err != nil {
-		return "", err
-	}
-	return sb.String(), nil
-}
-
-func scanWalk(dir string, depth, maxDepth int, sb *strings.Builder) error {
-	if maxDepth > 0 && depth > maxDepth {
-		return nil
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	// Directories first, then files, each alphabetical (ReadDir already sorts).
-	var dirs, files []os.DirEntry
-	for _, e := range entries {
-		name := e.Name()
-		if strings.HasPrefix(name, ".") || scanIgnore[name] {
-			continue
-		}
-		if e.IsDir() {
-			dirs = append(dirs, e)
-		} else {
-			files = append(files, e)
-		}
-	}
-	indent := strings.Repeat("  ", depth)
-	for _, d := range dirs {
-		fmt.Fprintf(sb, "%s%s/\n", indent, d.Name())
-		if err := scanWalk(filepath.Join(dir, d.Name()), depth+1, maxDepth, sb); err != nil {
-			return err
-		}
-	}
-	for _, f := range files {
-		fmt.Fprintf(sb, "%s%s\n", indent, f.Name())
-	}
-	return nil
 }
 
 // parseToGraph extracts structure from text at the given compression level.
