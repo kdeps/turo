@@ -47,10 +47,22 @@ func main() {
 	flag.BoolVar(&synonyms, "synonyms", envDefaultOn("TURO_SYNONYMS"), "replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
 	flag.BoolVar(&gloss, "gloss", envDefaultOn("TURO_GLOSS"), "swap words for the shortest defining word in their dictionary definition (on; disable with -gloss=false or TURO_GLOSS=off)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
+	var installAll bool
+	installAgentsFlag := flag.Bool("install-agents", false, "register the turo skill with detected coding agents, then exit")
+	flag.BoolVar(&installAll, "all", false, "with -install-agents: register every supported agent, not just detected ones")
+	listAgentsFlag := flag.Bool("list-agents", false, "list supported coding agents and whether each is detected, then exit")
 	flag.Parse()
 
 	if showVersion {
 		fmt.Println("turo", version)
+		return
+	}
+	if *listAgentsFlag {
+		listAgents()
+		return
+	}
+	if *installAgentsFlag {
+		installAgents(installAll)
 		return
 	}
 

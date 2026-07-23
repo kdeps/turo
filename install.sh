@@ -34,10 +34,6 @@ echo "turo installed to $INSTALL_DIR/turo"
 echo "Add to PATH: export PATH=\"$INSTALL_DIR:\$PATH\""
 
 # Register the turo skill + /turo command with every detected coding agent.
-# Requires npx (Node). Skipped silently when Node is unavailable.
-if command -v npx >/dev/null 2>&1; then
-  echo "Registering turo with detected agents..."
-  npx -y turo --no-binary || echo "turo: agent registration skipped (run 'npx turo --no-binary' later)"
-else
-  echo "Node not found — register agents later with: npx turo --no-binary"
-fi
+# The binary does this itself — no npm/npx, so there is no package-name clash.
+echo "Registering turo with detected agents..."
+"$INSTALL_DIR/turo" -install-agents || echo "turo: agent registration skipped (run 'turo -install-agents' later)"
