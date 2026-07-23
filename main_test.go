@@ -108,6 +108,16 @@ func TestLemma(t *testing.T) {
 		// singular nouns ending in s must not be de-pluralized
 		"news": "news", "analysis": "analysis", "virus": "virus",
 		"physics": "physics", "series": "series",
+		// added irregular verbs
+		"flew": "fly", "hung": "hang", "dug": "dig", "spun": "spin",
+		"rang": "ring", "sang": "sing", "froze": "freeze", "shot": "shoot",
+		"bound": "bind", "dealt": "deal", "slept": "sleep", "hid": "hide",
+		"shook": "shake", "forgot": "forget", "fled": "flee",
+		// added irregular plurals
+		"geese": "goose", "criteria": "criterion", "analyses": "analysis",
+		"crises": "crisis", "cacti": "cactus", "wolves": "wolf",
+		// -ies where the base ends in a consonant + y
+		"cities": "city",
 		// already-base words are unchanged
 		"go": "go", "fox": "fox",
 	}

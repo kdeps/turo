@@ -218,10 +218,22 @@ func parseToGraph(text string, level string, _ int) string {
 	if out == "" {
 		out = extractTermGraph(text, level)
 	}
-	if out == "" || estimateTokens(out) >= estimateTokens(text) {
+	if out == "" || !smaller(out, text) {
 		return text
 	}
 	return out
+}
+
+// smaller reports whether a is a cheaper representation than b: fewer estimated
+// tokens, or — on a token tie — fewer characters. The character tie-break lets
+// reductions that shorten a word without changing its token estimate still win
+// ("children" -> "child" is 8 -> 5 chars at the same 2-token estimate).
+func smaller(a, b string) bool {
+	ta, tb := estimateTokens(a), estimateTokens(b)
+	if ta != tb {
+		return ta < tb
+	}
+	return len(a) < len(b)
 }
 
 // estimateTokens approximates a BPE token count (cl100k-style) without a
@@ -400,13 +412,16 @@ func baseForms(w string) []string {
 		if n := len(root); n >= 2 && root[n-1] == root[n-2] {
 			c = append(c, root[:n-1]) // stopped->stop
 		}
-	case strings.HasSuffix(w, "ies") && len(w) > 4:
-		c = append(c, w[:len(w)-3]+"y") // companies->company
-	case strings.HasSuffix(w, "ss"):
-		// pass, class, process — not a plural; no candidate.
 	case nonPluralS(w):
 		// news, series, physics, analysis, virus — singular nouns that end in
 		// s; de-pluralizing them yields the wrong word ("news" -> "new").
+		// Checked before the plural cases so "series" is not read as an -ies form.
+	case strings.HasSuffix(w, "ies") && len(w) > 4:
+		// consonant+ies -> y (companies->company); vowel+ies is just +s
+		// (movies->movie), so offer the drop-s form too.
+		c = append(c, w[:len(w)-3]+"y", w[:len(w)-1])
+	case strings.HasSuffix(w, "ss"):
+		// pass, class, process — not a plural; no candidate.
 	case strings.HasSuffix(w, "es") && len(w) > 3:
 		c = append(c, w[:len(w)-2], w[:len(w)-1]) // boxes->box, goes->go, sees->see
 	case strings.HasSuffix(w, "s") && len(w) > 3:
@@ -484,17 +499,85 @@ var irregularLemma = map[string]string{
 	"spoke": "speak", "spoken": "speak",
 	"rose": "rise", "risen": "rise",
 	"shown": "show",
+	"flew":  "fly", "flown": "fly",
+	"blew": "blow", "blown": "blow",
+	"shook": "shake", "shaken": "shake",
+	"forgot": "forget", "forgotten": "forget",
+	"shot":   "shoot",
+	"bound":  "bind",
+	"ground": "grind",
+	"wound":  "wind",
+	"dealt":  "deal",
+	"slept":  "sleep",
+	"wept":   "weep",
+	"crept":  "creep",
+	"swept":  "sweep",
+	"leapt":  "leap",
+	"knelt":  "kneel",
+	"dwelt":  "dwell",
+	"froze":  "freeze", "frozen": "freeze",
+	"tore": "tear", "torn": "tear",
+	"wore": "wear", "worn": "wear",
+	"bore": "bear", "borne": "bear",
+	"swore": "swear", "sworn": "swear",
+	"stole": "steal", "stolen": "steal",
+	"wove": "weave", "woven": "weave",
+	"rode": "ride", "ridden": "ride",
+	"hid": "hide", "hidden": "hide",
+	"bit": "bite", "bitten": "bite",
+	"woke": "wake", "woken": "wake",
+	"awoke": "awake",
+	"arose": "arise", "arisen": "arise",
+	"drove2": "drive", // see drove above
+	"swam":   "swim", "swum": "swim",
+	"drank": "drink", "drunk": "drink",
+	"sank": "sink", "sunk": "sink",
+	"rang": "ring", "rung": "ring",
+	"sang": "sing", "sung": "sing",
+	"sprang": "spring", "sprung": "spring",
+	"swung":  "swing",
+	"clung":  "cling",
+	"stung":  "sting",
+	"hung":   "hang",
+	"dug":    "dig",
+	"spun":   "spin",
+	"lit":    "light",
+	"fled":   "flee",
+	"fed":    "feed",
+	"bred":   "breed",
+	"sped":   "speed",
+	"slew":   "slay",
+	"trod":   "tread",
+	"shrank": "shrink", "shrunk": "shrink",
+	"strove":  "strive",
+	"forgave": "forgive", "forgiven": "forgive",
+	"forsook": "forsake", "forsaken": "forsake",
+	"mistook": "mistake", "mistaken": "mistake",
+	"withdrew": "withdraw", "withdrawn": "withdraw",
+	"overcame": "overcome",
 	// irregular plurals (plural -> singular)
 	"children": "child",
 	"men":      "man", "women": "woman",
 	"feet": "foot", "teeth": "tooth",
 	"mice":   "mouse",
+	"geese":  "goose",
+	"oxen":   "ox",
+	"dice":   "die",
 	"people": "person",
 	"leaves": "leaf", "lives": "life", "wives": "wife", "knives": "knife",
-	"indices": "index", "vertices": "vertex", "matrices": "matrix",
+	"halves": "half", "shelves": "shelf", "wolves": "wolf", "calves": "calf",
+	"indices": "index", "vertices": "vertex", "matrices": "matrix", "appendices": "appendix",
+	// Latin/Greek plurals
+	"criteria": "criterion", "phenomena": "phenomenon",
+	"cacti": "cactus", "fungi": "fungus", "nuclei": "nucleus", "radii": "radius",
+	"alumni": "alumnus", "bacteria": "bacterium", "curricula": "curriculum",
+	"memoranda": "memorandum", "stimuli": "stimulus",
+	"analyses": "analysis", "crises": "crisis", "theses": "thesis",
+	"hypotheses": "hypothesis", "diagnoses": "diagnosis", "parentheses": "parenthesis",
 	// irregular comparatives / superlatives (-> base adjective)
 	"better": "good", "best": "good",
 	"worse": "bad", "worst": "bad",
+	"further": "far", "furthest": "far", "farther": "far", "farthest": "far",
 }
 
 // lemma reduces a word to its dictionary base form for deduplication so that
