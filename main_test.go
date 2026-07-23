@@ -131,6 +131,19 @@ func TestShortenSynonyms(t *testing.T) {
 	}
 }
 
+func TestSynonymsDefault(t *testing.T) {
+	t.Setenv("TURO_SYNONYMS", "")
+	if !synonymsDefault() {
+		t.Fatal("synonyms should default on when unset")
+	}
+	for _, off := range []string{"off", "0", "false", "no"} {
+		t.Setenv("TURO_SYNONYMS", off)
+		if synonymsDefault() {
+			t.Fatalf("TURO_SYNONYMS=%q should disable synonyms", off)
+		}
+	}
+}
+
 func TestEnvTrue(t *testing.T) {
 	t.Setenv("TURO_TEST_FLAG", "1")
 	if !envTrue("TURO_TEST_FLAG") {

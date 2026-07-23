@@ -39,7 +39,7 @@ func main() {
 	flag.StringVar(&level, "level", resolveDefaultLevel(), "compression level: lite, full, ultra")
 	flag.IntVar(&maxDepth, "max-depth", 0, "max transitive edge depth (0=unlimited)")
 	flag.BoolVar(&preamble, "preamble", false, "wrap output in a tagged block for system prompt injection")
-	flag.BoolVar(&synonyms, "synonyms", envTrue("TURO_SYNONYMS"), "first replace words with fewer-token synonyms (lossy; Moby thesaurus)")
+	flag.BoolVar(&synonyms, "synonyms", synonymsDefault(), "first replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.Parse()
 
@@ -91,6 +91,16 @@ func envTrue(name string) bool {
 		return true
 	}
 	return false
+}
+
+// synonymsDefault is the default for --synonyms: on, unless TURO_SYNONYMS is
+// set to a falsey value.
+func synonymsDefault() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("TURO_SYNONYMS"))) {
+	case "0", "false", "no", "off":
+		return false
+	}
+	return true
 }
 
 // shortenSynonyms replaces each word with a token-cheaper synonym from the
