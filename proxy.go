@@ -20,6 +20,7 @@ type proxyConfig struct {
 	filler   bool
 	synonyms bool
 	gloss    bool
+	arrows   bool
 }
 
 // runProxy starts an OpenAI/Anthropic-compatible reverse proxy that runs each
@@ -66,7 +67,7 @@ func proxyHandler(cfg proxyConfig) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		copyHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
@@ -97,7 +98,7 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 	}
 	before, after := 0, 0
 	red := func(s string) string {
-		out := reduce(s, cfg.level, 0, 0, cfg.filler, cfg.synonyms, cfg.gloss)
+		out := reduce(s, cfg.level, 0, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.arrows)
 		before += estimateTokens(s)
 		after += estimateTokens(out)
 		return out

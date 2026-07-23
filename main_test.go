@@ -205,21 +205,66 @@ func TestReduceMultiPass(t *testing.T) {
 	// Structured text repeats words across sections; a second pass flattens
 	// and dedupes, so more passes never yield a larger result.
 	txt := "# Server\nthe server handles the request quickly\n# Client\nthe client sends the request to the server\n"
-	one := estimateTokens(reduce(txt, "full", 0, 1, true, true, false))
-	four := estimateTokens(reduce(txt, "full", 0, 4, true, true, false))
+	one := estimateTokens(reduce(txt, "full", 0, 1, true, true, false, false))
+	four := estimateTokens(reduce(txt, "full", 0, 4, true, true, false, false))
 	if four > one {
 		t.Fatalf("multi-pass larger than single: 1=%d 4=%d", one, four)
 	}
 
 	// passes <= 0 runs to convergence; the result must be a fixpoint.
-	conv := reduce(txt, "ultra", 0, 0, true, true, false)
-	if again := reduce(conv, "ultra", 0, 0, true, true, false); again != conv {
+	conv := reduce(txt, "ultra", 0, 0, true, true, false, false)
+	if again := reduce(conv, "ultra", 0, 0, true, true, false, false); again != conv {
 		t.Fatalf("convergence not stable:\n%q\n%q", conv, again)
 	}
 
 	// Convergence is at least as aggressive as a single pass.
-	if estimateTokens(conv) > estimateTokens(reduce(txt, "ultra", 0, 1, true, true, false)) {
+	if estimateTokens(conv) > estimateTokens(reduce(txt, "ultra", 0, 1, true, true, false, false)) {
 		t.Fatal("converged output larger than a single pass")
+	}
+}
+
+func TestApplyArrows(t *testing.T) {
+	// Multi-word connective becomes a single "->" token.
+	if got := applyArrows("cache miss leads to a slow query"); !strings.Contains(got, "->") {
+		t.Fatalf("expected arrow in %q", got)
+	}
+	// Longest phrase wins: "gives rise to" not partially matched.
+	got := applyArrows("the change gives rise to errors")
+	if strings.Count(got, "->") != 1 {
+		t.Fatalf("expected exactly one arrow in %q", got)
+	}
+}
+
+func TestReduceArrowsOptIn(t *testing.T) {
+	in := "A cache miss leads to a slow query which produces a timeout"
+	// Off by default: no arrow.
+	off := reduce(in, "full", 0, 0, true, false, false, false)
+	if strings.Contains(off, "->") {
+		t.Fatalf("arrows must be off by default: %q", off)
+	}
+	// On: arrow survives the reduction and sits between content words.
+	on := reduce(in, "full", 0, 0, true, false, false, true)
+	if !strings.Contains(on, "->") {
+		t.Fatalf("expected arrow in reduced output: %q", on)
+	}
+	// No dangling/leading/trailing arrow.
+	if strings.HasPrefix(on, "->") || strings.HasSuffix(strings.TrimSpace(on), "->") ||
+		strings.Contains(on, "-> ->") {
+		t.Fatalf("dangling arrow in %q", on)
+	}
+}
+
+func TestCleanupArrows(t *testing.T) {
+	cases := map[string]string{
+		"-> cache miss":       "cache miss",
+		"cache miss ->":       "cache miss",
+		"a -> -> b":           "a -> b",
+		"cache -> slow query": "cache -> slow query",
+	}
+	for in, want := range cases {
+		if got := cleanupArrows(in); got != want {
+			t.Errorf("cleanupArrows(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
@@ -253,7 +298,7 @@ func TestWenyanBaseLevel(t *testing.T) {
 }
 
 func TestReduceWenyanSwapsAndKeepsCode(t *testing.T) {
-	got := reduce("The wise king studies pkg/x/y.go", "wenyan", 0, 0, true, false, false)
+	got := reduce("The wise king studies pkg/x/y.go", "wenyan", 0, 0, true, false, false, false)
 	if !strings.Contains(got, "智") || !strings.Contains(got, "王") {
 		t.Fatalf("expected wenyan chars in %q", got)
 	}
@@ -264,7 +309,7 @@ func TestReduceWenyanSwapsAndKeepsCode(t *testing.T) {
 
 func TestReducePreservesLiterals(t *testing.T) {
 	in := "See https://example.com/a/b?q=1 and pkg/agent/loop.go, then run `make build` at version 1.2.3."
-	got := reduce(in, "ultra", 0, 0, true, true, true)
+	got := reduce(in, "ultra", 0, 0, true, true, true, false)
 	for _, lit := range []string{
 		"https://example.com/a/b?q=1", "pkg/agent/loop.go", "`make build`", "1.2.3",
 	} {

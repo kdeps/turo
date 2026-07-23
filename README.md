@@ -87,6 +87,7 @@ turo -passes 1                    # single pass (default runs to convergence)
 turo -filler=false                # skip filler deletion
 turo -synonyms=false              # skip the synonym pass (keep words verbatim)
 turo -gloss=false                 # skip the defining-word swap (less lossy)
+turo -arrows                      # replace connective phrases with -> (opt-in)
 turo --version                    # print version
 ```
 
@@ -95,6 +96,18 @@ same-part-of-speech word from its own dictionary definition (`approach` ->
 `come`). Definitions are prose, not synonyms, so it is the lossiest stage —
 disable it with `-gloss=false` / `TURO_GLOSS=off` when you need words closer to
 the original.
+
+`-arrows` (off by default) replaces multi-word causal/sequential connectives
+(`leads to`, `results in`, `gives rise to`, `which produces`) with a single `->`
+token. Only multi-word phrases qualify, so the swap always saves at least one
+token; single-token connectives (`then`, `becomes`, `thus`) are left alone
+because `->` costs the same. Enable with `-arrows` / `TURO_ARROWS=on`.
+
+```text
+A cache miss leads to a slow query which produces a timeout
+                     |  -arrows
+Cache miss -> slow query -> timeout
+```
 
 ## Pipeline
 
@@ -115,6 +128,10 @@ text -> [1] delete filler -> [2] swap cheaper synonyms -> [3] swap defining word
    `TURO_GLOSS=off`.
 4. **Reduction** drops the remaining stopwords, keeps content words by part of
    speech, deduplicates, and (ultra) collapses inflections by lemma.
+
+**Arrows** (opt-in, runs before reduction) rewrites multi-word connective
+phrases to `->`, which the reducer keeps verbatim between the surviving content
+words. Off by default; enable with `-arrows` / `TURO_ARROWS=on`.
 
 The whole pipeline repeats until the output stops changing (`-passes 0`, the
 default; a positive `-passes N` caps the count). The first pass keeps document

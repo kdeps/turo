@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -38,6 +39,7 @@ func main() {
 		synonyms    bool
 		filler      bool
 		gloss       bool
+		arrows      bool
 		showVersion bool
 	)
 
@@ -48,6 +50,7 @@ func main() {
 	flag.BoolVar(&filler, "filler", envDefaultOn("TURO_FILLER"), "delete filler/pleasantry/hedge words first (on; disable with -filler=false or TURO_FILLER=off)")
 	flag.BoolVar(&synonyms, "synonyms", envDefaultOn("TURO_SYNONYMS"), "replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
 	flag.BoolVar(&gloss, "gloss", envDefaultOn("TURO_GLOSS"), "swap words for the shortest defining word in their dictionary definition (on; disable with -gloss=false or TURO_GLOSS=off)")
+	flag.BoolVar(&arrows, "arrows", envTrue("TURO_ARROWS"), "replace multi-word causal/sequential connectives (leads to, results in, gives rise to) with -> (off; enable with -arrows or TURO_ARROWS=on)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	var installAll bool
 	installAgentsFlag := flag.Bool("install-agents", false, "register the turo skill with detected coding agents, then exit")
@@ -95,7 +98,7 @@ func main() {
 			override = *upstream
 		}
 		err := runAgent(flag.Arg(1), flag.Args()[2:], override, proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
 		})
 		// Print turo's own setup errors; an agent that exits non-zero already
 		// reported to its stderr.
@@ -109,7 +112,7 @@ func main() {
 	if *proxyFlag {
 		err := runProxy(proxyConfig{
 			listen: *listen, upstream: strings.TrimSuffix(*upstream, "/v1"),
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "turo proxy: %v\n", err)
@@ -124,7 +127,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	graph := reduce(input, level, maxDepth, passes, filler, synonyms, gloss)
+	graph := reduce(input, level, maxDepth, passes, filler, synonyms, gloss, arrows)
 
 	if preamble {
 		graph = wrapPreamble(graph)
@@ -141,7 +144,7 @@ const maxConvergePasses = 100
 // passes flatten structure left by earlier ones and dedupe across it, so large
 // structured docs keep shrinking for a pass or two before converging. passes>0
 // caps the number of iterations; passes<=0 runs to convergence (safety-capped).
-func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss bool) string {
+func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss, arrows bool) string {
 	// wenyan: reduce at ultra, then swap surviving English words for their
 	// 文言 character.
 	base, wenyan := wenyanBaseLevel(level)
@@ -159,6 +162,9 @@ func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss bo
 	out := stripped
 	for i := 0; i < limit; i++ {
 		step := out
+		if arrows {
+			step = applyArrows(step) // stage 0: connective phrase -> "->" (before word swaps mangle it)
+		}
 		if filler {
 			step = shrinkProse(step) // stage 1: delete filler/pleasantry/hedge words
 		}
@@ -175,6 +181,9 @@ func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss bo
 		out = step
 	}
 
+	if arrows {
+		out = cleanupArrows(out) // collapse dangling/repeated arrows left by dedup
+	}
 	if wenyan {
 		out = applyWenyan(out) // swap reduced English words for 文言 chars
 	}
@@ -249,6 +258,63 @@ func shortenSynonyms(text string) string { return swapWords(text, shorterSynonym
 // dictionary definition. Very lossy — definitions are prose, not synonyms — so
 // it is opt-in via -gloss / TURO_GLOSS and off by default.
 func applyGloss(text string) string { return swapWords(text, definitionGloss) }
+
+// arrowPhrases are multi-word causal/sequential/transformation connectives that
+// a single "->" token expresses. Every entry is two or more words (>=2 tokens),
+// so the swap always saves at least one token — single-token connectives
+// (then, thus, becomes) are excluded because "->" costs the same. Ordered
+// longest-first so "gives rise to" wins over any shorter overlapping phrase.
+//
+//nolint:gochecknoglobals // static phrase table for the arrow regex
+var arrowPhrases = []string{
+	"gives rise to", "give rise to", "gave rise to", "giving rise to",
+	"which results in", "which produces", "which yields", "which gives",
+	"in order to", "so as to",
+	"resulting in", "results in", "result in", "resulted in",
+	"leading to", "leads to", "lead to", "led to",
+	"translates to", "translate to", "translated to",
+	"converts to", "convert to", "converted to",
+	"turns into", "turn into", "turned into", "turning into",
+	"gives way to", "give way to",
+	"maps to", "map to", "mapped to",
+	"so that",
+}
+
+// reArrow matches any arrow phrase, case-insensitively, with word boundaries.
+// Intra-phrase spaces match any run of whitespace so wrapped/reflowed prose
+// still matches.
+//
+//nolint:gochecknoglobals // compiled once from arrowPhrases
+var reArrow = buildArrowRegex()
+
+func buildArrowRegex() *regexp.Regexp {
+	parts := make([]string, len(arrowPhrases))
+	for i, p := range arrowPhrases {
+		parts[i] = strings.ReplaceAll(regexp.QuoteMeta(p), " ", `\s+`)
+	}
+	return regexp.MustCompile(`(?i)\b(?:` + strings.Join(parts, "|") + `)\b`)
+}
+
+// reDanglingArrows collapses two or more consecutive arrows (left when the term
+// between them is dropped or deduped) into one.
+//
+//nolint:gochecknoglobals // compiled once
+var reDanglingArrows = regexp.MustCompile(`(?:->\s*){2,}`)
+
+// applyArrows replaces multi-word connective phrases with "->". Opt-in via
+// -arrows / TURO_ARROWS. The arrow survives the reduction pass because
+// extractTermGraph passes "->" tokens through verbatim.
+func applyArrows(text string) string { return reArrow.ReplaceAllString(text, " -> ") }
+
+// cleanupArrows removes dangling arrows: repeated runs collapse to one, and a
+// leading or trailing arrow (nothing on one side) is dropped.
+func cleanupArrows(s string) string {
+	s = reDanglingArrows.ReplaceAllString(s, "-> ")
+	s = strings.TrimSpace(s)
+	s = strings.TrimSpace(strings.TrimPrefix(s, "->"))
+	s = strings.TrimSpace(strings.TrimSuffix(s, "->"))
+	return strings.TrimSpace(s)
+}
 
 // swapWords replaces each alphabetic word with its mapping when the replacement
 // shares the word's dictionary part of speech. Non-letter runs (punctuation,
@@ -740,6 +806,10 @@ func extractTermGraph(text string, level string) string {
 	seen := make(map[string]bool)
 	var out []string
 	for _, w := range fields {
+		if w == "->" { // arrow connective (from applyArrows): keep verbatim, never dedup
+			out = append(out, "->")
+			continue
+		}
 		lower := strings.ToLower(strings.Trim(w, ",;:.!?\"'()[]{}\\`*~|<>—–-"))
 		lower = strings.ReplaceAll(lower, "'", "")
 		if len(lower) < 2 || stopWords[lower] || isAllPunct(lower) {

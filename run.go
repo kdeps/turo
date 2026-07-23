@@ -65,7 +65,7 @@ func runAgent(agent string, args []string, upstreamOverride string, pcfg proxyCo
 	}
 	srv := &http.Server{Handler: proxyHandler(pcfg)} //nolint:gosec // local dev proxy
 	go func() { _ = srv.Serve(ln) }()
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	baseURL := "http://" + ln.Addr().String() + t.suffix
 	fmt.Fprintf(os.Stderr, "turo run: %s via proxy %s -> %s (reducing %s)\n",
