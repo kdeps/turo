@@ -166,8 +166,23 @@ pays off on longer text. Don't use it with OpenAI models.
 
 turo's own token estimator counts CJK as 1 rune = 1 token (matching those
 models), so it treats wenyan as a reduction and never rejects it as "larger".
-Coverage is limited to the core lexicon; unmapped words stay English, and
-code/paths/URLs are preserved verbatim.
+
+**Coverage is the limiter.** The core lexicon is common/classical vocabulary,
+not dev jargon — on technical text most words stay English. The PR-review
+paragraph from the top of this README (`ultra-wenyan`) only swaps a handful:
+
+```
+Review 引 request 作 examine 變檔 verify 碼 introduce regression exist behavior
+important check author 增試 untested 破 debug later confirm documentation updated
+reflect commit message notice security vulnerability unsanitized 戶入 hardcoded
+must flag merge
+```
+
+That mix is the worst case: the few CJK chars cost 2-3 cl100k tokens each *and*
+the English words remain, so on OpenAI it is 54 tokens vs plain `ultra`'s 41.
+wenyan shines on plain prose with high lexicon coverage; for technical text you
+must extend `wenyanMap`. Unmapped words stay English; code/paths/URLs are
+preserved verbatim.
 
 In **ultra**, inflections of the same word collapse to one token by their
 dictionary base form: `goes`, `went`, `going` -> `go`; `children` -> `child`;
