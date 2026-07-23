@@ -1,12 +1,16 @@
-.PHONY: build install install-skill clean
+.PHONY: build install install-skill test clean
 
 BINARY     := turo
 PREFIX     ?= /usr/local
 BINDIR     := $(PREFIX)/bin
 SKILLDIR   ?= $(HOME)/.agents/skills/turo
+VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build:
-	go build -ldflags="-s -w" -o $(BINARY) .
+	go build -ldflags="-s -w -X main.version=$(VERSION)" -o $(BINARY) .
+
+test:
+	go test ./...
 
 install: build
 	install -d $(DESTDIR)$(BINDIR)

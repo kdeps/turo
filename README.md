@@ -1,8 +1,10 @@
-# turo
+<p align="center">
+  <img src="docs/logo.png" alt="turo" width="480">
+</p>
 
-**prose in, graph out**
-
-Stream editor that converts text to compact kartographer graphs. Pipe in CLAUDE.md, README, memory, instructions — turo strips the filler and outputs arrow-chain relationships. 60-80% fewer tokens. Same substance.
+<p align="center">
+  <strong>Point more. Token less.</strong>
+</p>
 
 ```
 the quick brown fox jumps all over the lazy dog
@@ -20,6 +22,8 @@ lazy → dog
 
 No articles. No prepositions. No adverbs. Just pointers between content words. Each line is a kartographer edge.
 
+Turo is a skill/plugin for Claude Code, Codex, Gemini, Cursor, Windsurf, Cline, Copilot, and 30+ other agents. Install once. Every agent gets the same compact graph format — code, commands, and errors stay byte-for-byte exact. You save input tokens on every turn, forever.
+
 ## Install
 
 | Method | Command |
@@ -27,6 +31,7 @@ No articles. No prepositions. No adverbs. Just pointers between content words. E
 | **npx** | `npx turo` |
 | **Homebrew** | `brew install kdeps/tap/turo` |
 | **Go** | `go install github.com/kdeps/turo@latest` |
+| **Shell** | `curl -fsSL https://raw.githubusercontent.com/kdeps/turo/main/install.sh | sh` |
 | **Manual** | Download from [releases](https://github.com/kdeps/turo/releases) |
 
 ## Usage
@@ -34,8 +39,10 @@ No articles. No prepositions. No adverbs. Just pointers between content words. E
 ```bash
 cat CLAUDE.md | turo              # text → graph
 echo "fox jumps over dog" | turo  # pipe mode
-turo --scan .                     # directory tree from kartographer index
+turo --scan .                     # directory tree graph (walks the filesystem)
+turo --scan . --max-depth 3       # cap tree depth
 turo --preamble                   # wrap for system prompt injection
+turo --version                    # print version
 ```
 
 ## Intensity levels
@@ -54,14 +61,37 @@ echo "fox jumps over lazy dog" | turo --level ultra  # fox → jumps → lazy �
 
 Set default via `TURO_LEVEL` env var.
 
-## Integration with kdeps
+## Integration
 
-When turo is on PATH, kdeps routes ALL system prompt text through turo automatically. Memory, skills, instructions, tool guidance — everything becomes a compact graph. Tool outputs too.
+`npx turo` installs the binary **and** registers the turo skill + `/turo`
+command with every coding agent it finds on your machine — Claude Code, Gemini
+CLI, opencode, Codex, Cursor, Windsurf, Cline, Copilot, and 20+ more. Install
+once; every agent gets the same reducer.
 
 ```bash
-TURO_LEVEL=ultra kdeps   # maximum compression
-KDEPS_TURO=off kdeps     # disable, use normal text
+npx turo                 # binary + register with detected agents
+npx turo --list          # show every supported agent and its status
+npx turo --only claude   # register with one agent
+npx turo --all           # register with every supported agent
+npx turo --no-binary     # register agents only (binary already installed)
+npx turo --uninstall     # remove binary + registered skills
 ```
+
+Under the hood each agent gets one of:
+
+- **Claude Code / opencode** — the skill and `/turo` command are copied into the agent's config dir
+- **Gemini CLI** — `gemini extensions install`
+- **everything else** — `npx skills add kdeps/turo --skill turo -a <profile>`
+
+Once turo is on PATH, any agent can also pipe context through it directly:
+
+```bash
+cat CLAUDE.md | turo --preamble    # compact system prompt
+cat error.log | turo               # graph from log output
+turo --scan . --preamble           # project tree as graph
+```
+
+Set `TURO_LEVEL=ultra` for maximum compression. `KDEPS_TURO=off` or `TURO_DISABLED=1` to disable.
 
 ## What it does NOT touch
 
@@ -78,6 +108,6 @@ KDEPS_TURO=off kdeps     # disable, use normal text
 
 ## Why
 
-System prompts are 50-200k tokens of prose. Most of those words don't carry information — they carry grammar. Turo extracts the structural relationships and drops the scaffolding.
+System prompts are 50-200k tokens. Most of those words carry grammar, not meaning. Turo points at what matters and drops the rest.
 
-One graph. No words. Same meaning.
+Point more. Token less.

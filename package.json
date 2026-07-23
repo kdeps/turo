@@ -1,13 +1,15 @@
 {
   "name": "turo",
   "version": "0.1.0",
-  "description": "Stream editor — prose in, kartographer graph out. Cuts system prompt tokens by replacing verbose text with arrow-chain graphs.",
+  "description": "Point more. Token less.",
   "bin": {
     "turo": "bin/install.js"
   },
   "files": [
     "bin/",
-    "skills/"
+    "skills/",
+    "commands/",
+    "gemini-extension.json"
   ],
   "keywords": [
     "llm",

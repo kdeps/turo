@@ -8,9 +8,10 @@
 //
 //	cat CLAUDE.md | turo              stream editor: text → graph
 //	turo file.md                      same, from file
-//	turo --scan [dir]                 directory graph from kartographer index
+//	turo --scan [dir]                 directory tree graph (walks the filesystem)
 //	turo --preamble                   wrap output for system prompt injection
-//	turo --preamble --max-depth 4     cap tree depth
+//	turo --scan . --max-depth 4       cap tree depth
+//	turo --version                    print version
 //
 // Binary on PATH, detected by kdeps like RTK.
 package main
@@ -21,49 +22,79 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
+// version is the turo release, overridden at build time via -ldflags.
+var version = "dev"
+
 func main() {
 	var (
-		scanDir      string
-		showPreamble bool
-		maxDepth     int
-		level        string
+		level       string
+		maxDepth    int
+		preamble    bool
+		scan        bool
+		showVersion bool
 	)
 
-	flag.StringVar(&scanDir, "scan", "", "scan directory via kartographer index instead of text input")
-	flag.BoolVar(&showPreamble, "preamble", false, "wrap output for system prompt injection")
-	flag.IntVar(&maxDepth, "max-depth", 3, "max tree depth for scan mode")
 	flag.StringVar(&level, "level", resolveDefaultLevel(), "compression level: lite, full, ultra")
+	flag.IntVar(&maxDepth, "max-depth", 0, "max transitive edge depth (0=unlimited)")
+	flag.BoolVar(&preamble, "preamble", false, "wrap output in a tagged block for system prompt injection")
+	flag.BoolVar(&scan, "scan", false, "graph a directory tree instead of reading text (dir arg or cwd)")
+	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println("turo", version)
+		return
+	}
 
 	if level != "lite" && level != "full" && level != "ultra" {
 		fmt.Fprintf(os.Stderr, "turo: invalid level %q — use lite, full, or ultra\n", level)
 		os.Exit(1)
 	}
 
-	var text string
-	if scanDir != "" {
-		tree, err := scanTree(scanDir, maxDepth)
+	var graph string
+	if scan {
+		dir := flag.Arg(0)
+		if dir == "" {
+			dir = "."
+		}
+		g, err := scanDir(dir, maxDepth)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "turo: %v\n", err)
 			os.Exit(1)
 		}
-		text = tree
+		graph = g
 	} else {
 		input, err := readInput()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "turo: %v\n", err)
 			os.Exit(1)
 		}
-		text = parseToGraph(input, level)
+		graph = parseToGraph(input, level, maxDepth)
 	}
 
-	if showPreamble {
-		text = formatPreamble(text)
+	if preamble {
+		graph = wrapPreamble(graph)
 	}
-	fmt.Print(text)
+	fmt.Print(graph)
+}
+
+// wrapPreamble wraps a graph in a tagged block that tells the LLM the content is
+// a compressed structural graph, not prose. Injected verbatim into a system prompt.
+func wrapPreamble(graph string) string {
+	if strings.TrimSpace(graph) == "" {
+		return ""
+	}
+	graph = strings.TrimRight(graph, "\n")
+	return "<context-graph>\n" +
+		"# Compressed context. Each line is a directed edge (A → B) or a node. " +
+		"Articles, prepositions, and filler are stripped; content words and their " +
+		"relationships are preserved. Code, paths, and identifiers are verbatim.\n" +
+		graph + "\n" +
+		"</context-graph>\n"
 }
 
 func resolveDefaultLevel() string {
@@ -89,13 +120,74 @@ func readInput() (string, error) {
 	return "", fmt.Errorf("no input — pipe text or provide a file")
 }
 
+// scanIgnore is the set of directory names skipped by --scan.
+var scanIgnore = map[string]bool{
+	".git": true, "node_modules": true, "vendor": true, ".idea": true,
+	".vscode": true, "dist": true, "build": true, ".next": true,
+	"__pycache__": true, ".venv": true, "target": true,
+}
+
+// scanDir walks dir and returns a compact tree graph: one indented line per
+// entry, directories before files. maxDepth caps recursion (0 = unlimited).
+// Hidden entries and common vendor/build dirs are skipped. Symlinks are not
+// followed, so the walk always terminates.
+func scanDir(dir string, maxDepth int) (string, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s is not a directory", dir)
+	}
+	var sb strings.Builder
+	sb.WriteString(filepath.Base(strings.TrimRight(dir, string(os.PathSeparator))) + "\n")
+	if err := scanWalk(dir, 1, maxDepth, &sb); err != nil {
+		return "", err
+	}
+	return sb.String(), nil
+}
+
+func scanWalk(dir string, depth, maxDepth int, sb *strings.Builder) error {
+	if maxDepth > 0 && depth > maxDepth {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	// Directories first, then files, each alphabetical (ReadDir already sorts).
+	var dirs, files []os.DirEntry
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") || scanIgnore[name] {
+			continue
+		}
+		if e.IsDir() {
+			dirs = append(dirs, e)
+		} else {
+			files = append(files, e)
+		}
+	}
+	indent := strings.Repeat("  ", depth)
+	for _, d := range dirs {
+		fmt.Fprintf(sb, "%s%s/\n", indent, d.Name())
+		if err := scanWalk(filepath.Join(dir, d.Name()), depth+1, maxDepth, sb); err != nil {
+			return err
+		}
+	}
+	for _, f := range files {
+		fmt.Fprintf(sb, "%s%s\n", indent, f.Name())
+	}
+	return nil
+}
+
 // parseToGraph extracts structure from text at the given compression level.
-func parseToGraph(text string, level string) string {
-	g := extractStructure(text)
+func parseToGraph(text string, level string, maxDepth int) string {
+	g := extractStructure(text, level)
 	if g != "" {
 		return g
 	}
-	return extractTermGraph(text, level)
+	return extractTermGraph(text, level, maxDepth)
 }
 
 // --- structured: headings + file paths ---
@@ -104,9 +196,34 @@ type section struct {
 	level int
 	name  string
 	paths []string
+	body  []string // non-path body lines
 }
 
-func extractStructure(text string) string {
+func isAllPunct(s string) bool {
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func isNoiseLine(line string) bool {
+	// Table separators: |---|---|
+	if strings.HasPrefix(line, "|---") || strings.HasPrefix(line, "| --") {
+		return true
+	}
+	// Lines that are mostly non-alphanumeric.
+	alpha := 0
+	for _, r := range line {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			alpha++
+		}
+	}
+	return len(line) > 3 && alpha < len(line)/3
+}
+
+func extractStructure(text string, level string) string {
 	scanner := bufio.NewScanner(strings.NewReader(text))
 	var sections []section
 	var cur *section
@@ -131,6 +248,9 @@ func extractStructure(text string) string {
 		if cur != nil {
 			if p := extractPath(line); p != "" {
 				cur.paths = append(cur.paths, p)
+			} else if line != "" && !strings.HasPrefix(line, "#") && !isNoiseLine(line) {
+				clean := strings.NewReplacer("**", "", "__", "", "*", "", "_", "", "`", "").Replace(line)
+				cur.body = append(cur.body, clean)
 			}
 		}
 	}
@@ -146,6 +266,15 @@ func extractStructure(text string) string {
 		fmt.Fprintf(&sb, "%s%s\n", indent, s.name)
 		for _, p := range s.paths {
 			fmt.Fprintf(&sb, "%s  → %s\n", indent, p)
+		}
+		if len(s.body) > 0 {
+			bodyText := strings.Join(s.body, " ")
+			bodyGraph := extractTermGraph(bodyText, level, 1)
+			for _, line := range strings.Split(strings.TrimSpace(bodyGraph), "\n") {
+				if line != "" {
+					fmt.Fprintf(&sb, "%s  %s\n", indent, line)
+				}
+			}
 		}
 	}
 	return sb.String()
@@ -165,18 +294,29 @@ var stopWords = map[string]bool{
 	"and": true, "but": true, "or": true, "nor": true, "not": true,
 	"this": true, "that": true, "these": true, "those": true, "it": true,
 	"its": true, "they": true, "them": true, "their": true,
+	"you": true, "me": true, "we": true, "us": true, "he": true, "she": true,
+	"your": true, "youre": true, "youll": true, "youve": true, "youd": true,
+	"im": true, "ive": true, "id": true, "ill": true,
+	"hes": true, "shes": true, "heres": true, "theres": true,
+	"isnt": true, "arent": true, "wasnt": true, "werent": true,
+	"hasnt": true, "havent": true, "hadnt": true, "wont": true,
+	"wouldnt": true, "couldnt": true, "shouldnt": true,
 	"each": true, "every": true, "both": true, "few": true, "more": true,
 	"most": true, "some": true, "such": true, "no": true,
-	"only": true, "own": true, "same": true, "so": true, "than": true,
 	"too": true, "just": true, "about": true, "then": true,
+	"likely": true, "really": true, "actually": true, "basically": true,
+	"simply": true, "generally": true, "usually": true, "often": true,
+	"always": true, "never": true, "quite": true, "rather": true,
 	"our": true, "any": true, "what": true,
 	"which": true, "who": true, "how": true, "when": true, "where": true,
 }
 
-// Extra stop words filtered at ultra level only.
 var ultraStopWords = map[string]bool{
 	"all": true, "over": true, "other": true, "very": true,
 	"only": true, "just": true, "also": true, "then": true,
+	"likely": true, "because": true, "really": true, "actually": true,
+	"basically": true, "simply": true, "generally": true, "usually": true,
+	"often": true, "always": true, "never": true, "quite": true, "rather": true,
 }
 
 type word struct {
@@ -184,7 +324,103 @@ type word struct {
 	class string
 }
 
-func extractTermGraph(text string, level string) string {
+var wordEmoji = map[string]string{
+	"fox": "🦊", "dog": "🐕", "cat": "🐈", "bird": "🐦", "fish": "🐟",
+	"bear": "🐻", "wolf": "🐺", "snake": "🐍", "bug": "🐛",
+	"tree": "🌳", "fire": "🔥", "water": "💧", "earth": "🌍", "sun": "☀️",
+	"jump": "🦘", "jumps": "🦘", "run": "🏃", "runs": "🏃", "walk": "🚶",
+	"move": "➡️", "go": "🚀", "goes": "🚀",
+	"quick": "⚡", "fast": "⚡", "slow": "🐢", "lazy": "🦥",
+	"big": "🐘", "small": "🔹", "new": "🆕", "old": "📜",
+	"high": "📈", "low": "📉", "long": "📏", "short": "📐",
+	"red": "🔴", "blue": "🔵", "green": "🟢", "yellow": "🟡", "brown": "🟤", "black": "⚫", "white": "⚪",
+	"good": "✅", "bad": "❌", "hot": "🔥", "cold": "🧊",
+	"easy": "👍", "hard": "💪", "simple": "✌️", "complex": "🧩",
+	"clean": "🧹", "safe": "🛡", "broken": "💔", "best": "🏆",
+	"computer": "💻", "server": "🖥", "phone": "📱", "car": "🚗",
+	"data": "📊", "file": "📄", "folder": "📁", "code": "💻",
+	"api": "🔌", "db": "🗄", "http": "🌐", "url": "🔗",
+	"app": "📲", "web": "🌐", "cloud": "☁️", "network": "🌐",
+	"test": "🧪", "build": "🏗", "deploy": "🚢", "release": "📦",
+	"commit": "💾", "push": "⬆️", "pull": "⬇️", "merge": "🔀",
+	"branch": "🌿", "fork": "🍴", "clone": "🐑", "patch": "🩹",
+	"fix": "🔧", "add": "➕", "remove": "➖", "create": "✨",
+	"delete": "🗑", "update": "🔄", "change": "🔀", "edit": "✏️",
+	"find": "🔍", "search": "🔎", "read": "📖", "write": "✍️",
+	"save": "💾", "load": "📥", "send": "📤", "fetch": "📥",
+	"start": "▶️", "stop": "⏹", "pause": "⏸", "wait": "⏳",
+	"check": "✅", "verify": "🔬", "validate": "👍", "confirm": "☑️",
+	"handle": "✋", "support": "🏋", "accept": "🤝", "reject": "👎",
+	"include": "📎", "contain": "📦", "keep": "📌", "drop": "💧",
+	"call": "📞", "return": "↩️", "pass": "➡️", "skip": "⏭",
+	"object": "📦", "reference": "🔗", "value": "💎", "type": "🏷",
+	"name": "📛", "key": "🔑", "lock": "🔒", "list": "📋",
+	"map": "🗺", "set": "📚", "array": "📊", "string": "📝",
+	"number": "🔢", "bool": "🔘", "null": "⭕", "error": "⚠️",
+	"warning": "⚠️", "info": "ℹ️", "help": "🆘", "question": "❓",
+	"time": "🕐", "date": "📅", "year": "📆", "day": "🌅",
+	"money": "💰", "price": "💲", "cost": "💸", "free": "🆓",
+	"on": "🟢", "off": "🔴", "open": "📂", "close": "📁",
+	"first": "🥇", "last": "🏁", "next": "⏩", "prev": "⏪",
+	"same": "🟰", "different": "≠",
+	"user": "👤", "admin": "👑", "team": "👥",
+	"component": "🧩", "function": "ƒ", "class": "📦", "method": "🔧",
+	"module": "📦", "package": "📦", "library": "📚",
+	"interface": "🔌", "service": "⚙", "client": "💻",
+	"database": "🗄", "cache": "💾", "queue": "📥", "log": "📋",
+	"config": "⚙", "env": "🌍", "secret": "🤫", "token": "🎟",
+	"request": "📨", "response": "📩", "event": "📢", "message": "💬",
+	"render": "🎨", "react": "⚛️", "state": "📊", "prop": "📌",
+	"hook": "🪝", "effect": "⚡", "memo": "🧠", "callback": "📞",
+	"context": "🌐", "router": "🚦", "store": "🏪", "action": "🎬",
+	"use": "🔨", "uses": "🔨", "using": "🔨", "make": "🏭", "makes": "🏭",
+	"get": "📥", "gets": "📥", "see": "👁", "sees": "👁",
+	"reason": "🤔", "cycle": "🔁", "creates": "✨",
+	"re-render": "🔄", "rerender": "🔄", "re-rendering": "🔄",
+	"usememo": "🧠", "rendering": "🎨", "shallow": "🪞",
+	"comparison": "🆚", "inline": "📐", "trigger": "🔫",
+	"recommend": "💡", "memoize": "🧠",
+}
+
+func wordIcon(w string) string {
+	if e, ok := wordEmoji[w]; ok {
+		return e
+	}
+	root := stem(w)
+	if root != w {
+		if e, ok := wordEmoji[root]; ok {
+			return e
+		}
+	}
+	return ""
+}
+
+func stem(w string) string {
+	doubles := []struct{ suffix, replacement string }{
+		{"nning", "n"}, {"pping", "p"}, {"tting", "t"}, {"ssing", "s"},
+		{"gging", "g"}, {"mming", "m"}, {"lling", "l"}, {"rring", "r"},
+		{"pped", "p"}, {"tted", "t"}, {"ssed", "s"}, {"gged", "g"},
+		{"mmed", "m"}, {"nned", "n"}, {"lled", "l"}, {"rred", "r"},
+	}
+	for _, d := range doubles {
+		if strings.HasSuffix(w, d.suffix) {
+			return w[:len(w)-len(d.suffix)] + d.replacement
+		}
+	}
+	for _, s := range []string{"ingly", "ment", "ments", "tion", "ness", "able", "ible", "less", "ful", "ish"} {
+		if strings.HasSuffix(w, s) && len(w)-len(s) >= 2 {
+			return w[:len(w)-len(s)]
+		}
+	}
+	for _, s := range []string{"ing", "ed", "es", "s", "ly", "er", "est", "or"} {
+		if strings.HasSuffix(w, s) && len(w)-len(s) >= 2 {
+			return w[:len(w)-len(s)]
+		}
+	}
+	return w
+}
+
+func extractTermGraph(text string, level string, maxDepth int) string {
 	sentences := strings.FieldsFunc(text, func(r rune) bool {
 		return r == '.' || r == '!' || r == '?' || r == '\n'
 	})
@@ -192,11 +428,9 @@ func extractTermGraph(text string, level string) string {
 	var all []word
 	for _, sent := range sentences {
 		for _, w := range strings.Fields(sent) {
-			lower := strings.ToLower(w)
-			if len(lower) < 2 {
-				continue
-			}
-			if stopWords[lower] {
+			lower := strings.ToLower(strings.Trim(w, ",;:.!?\"'()[]{}\\`*~|<>—–-"))
+			lower = strings.ReplaceAll(lower, "'", "")
+			if len(lower) < 2 || stopWords[lower] || isAllPunct(lower) {
 				continue
 			}
 			if level == "ultra" && ultraStopWords[lower] {
@@ -212,7 +446,6 @@ func extractTermGraph(text string, level string) string {
 
 	var edges []string
 	if level == "lite" {
-		// Lite: sequential chain of all content words.
 		var prev string
 		for _, w := range all {
 			if w.class == "adj" || w.class == "noun" || w.class == "verb" || w.class == "other" {
@@ -223,7 +456,6 @@ func extractTermGraph(text string, level string) string {
 			}
 		}
 	} else {
-		// Full/Ultra: kartographer edges (adj→noun, noun→verb, verb→noun).
 		var adjBuf []string
 		var lastNoun, lastVerb string
 		for _, w := range all {
@@ -257,29 +489,83 @@ func extractTermGraph(text string, level string) string {
 				edges = append(edges, a+" → "+lastNoun)
 			}
 		}
-		if level == "ultra" && len(edges) > 0 {
-			// Deduplicate into single chain.
-			seen := make(map[string]bool)
-			var chain []string
-			for _, e := range edges {
-				for _, p := range strings.SplitN(e, " → ", 2) {
-					if !seen[p] {
-						seen[p] = true
-						chain = append(chain, p)
-					}
-				}
-			}
-			if len(chain) > 0 {
-				return strings.Join(chain, " → ") + "\n"
-			}
-			return ""
-		}
 	}
 
-	if len(edges) > 0 {
-		return strings.Join(edges, "\n") + "\n"
+	if len(edges) == 0 {
+		return ""
 	}
-	return ""
+	edges = expandEdges(edges, maxDepth)
+	if level == "ultra" {
+		return formatUltra(edges)
+	}
+	return strings.Join(edges, "\n") + "\n"
+}
+
+func expandEdges(edges []string, maxDepth int) []string {
+	if maxDepth <= 1 {
+		return edges
+	}
+	// Build adjacency: node -> list of nodes it points to.
+	next := make(map[string][]string)
+	for _, e := range edges {
+		parts := strings.SplitN(e, " → ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		a, b := parts[0], parts[1]
+		next[a] = append(next[a], b)
+	}
+
+	var expanded []string
+	for _, e := range edges {
+		parts := strings.SplitN(e, " → ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		a, b := parts[0], parts[1]
+		path := []string{a, b}
+		// Follow chain: B -> C -> D up to maxDepth.
+		cur := b
+		for depth := 1; depth < maxDepth; depth++ {
+			targets := next[cur]
+			if len(targets) == 0 {
+				break
+			}
+			// If multiple outgoing, take first; fork into separate edges.
+			for i, t := range targets {
+				if i == 0 {
+					path = append(path, t)
+					cur = t
+				} else {
+					// Fork: new edge from the branch point.
+					branch := make([]string, len(path)-1)
+					copy(branch, path[:len(path)-1])
+					branch = append(branch, t)
+					expanded = append(expanded, strings.Join(branch, " → "))
+				}
+			}
+		}
+		expanded = append(expanded, strings.Join(path, " → "))
+	}
+	return expanded
+}
+
+func formatUltra(edges []string) string {
+	for i, e := range edges {
+		parts := strings.SplitN(e, " → ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		a, b := parts[0], parts[1]
+		if ea := wordIcon(a); ea != "" {
+			a = ea
+		}
+		if eb := wordIcon(b); eb != "" {
+			b = eb
+		}
+		edges[i] = a + " → " + b
+	}
+	return strings.Join(edges, "\n") + "\n"
 }
 
 func classify(w string) string { return dictClassify(w) }

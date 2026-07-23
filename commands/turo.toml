@@ -1,0 +1,2 @@
+description = "Point more, token less — convert text to kartographer graph"
+prompt = "Pipe the current context through turo to reduce it to a compact arrow-chain graph. {{args}}"

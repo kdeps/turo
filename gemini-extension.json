@@ -1,0 +1,6 @@
+{
+  "name": "turo",
+  "description": "Point more. Token less. Pipes context through the turo binary to convert prose into a compact kartographer graph, cutting input tokens while keeping code, paths, and errors byte-for-byte exact.",
+  "version": "0.1.0",
+  "contextFileName": "GEMINI.md"
+}
