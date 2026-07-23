@@ -223,6 +223,47 @@ func TestReduceMultiPass(t *testing.T) {
 	}
 }
 
+func TestApplyWenyan(t *testing.T) {
+	got := applyWenyan("wise king water fire mountain kubernetes")
+	for _, c := range []string{"智", "王", "水", "火", "山"} {
+		if !strings.Contains(got, c) {
+			t.Fatalf("expected %s in %q", c, got)
+		}
+	}
+	if !strings.Contains(got, "kubernetes") {
+		t.Fatalf("unmapped word should stay English: %q", got)
+	}
+}
+
+func TestWenyanBaseLevel(t *testing.T) {
+	cases := map[string]struct {
+		base   string
+		wenyan bool
+	}{
+		"wenyan":       {"full", true},
+		"wenyan-all":   {"lite", true},
+		"ultra-wenyan": {"ultra", true},
+		"ultra":        {"ultra", false},
+		"full":         {"full", false},
+	}
+	for in, want := range cases {
+		b, w := wenyanBaseLevel(in)
+		if b != want.base || w != want.wenyan {
+			t.Errorf("wenyanBaseLevel(%q) = (%q,%v), want (%q,%v)", in, b, w, want.base, want.wenyan)
+		}
+	}
+}
+
+func TestReduceWenyanSwapsAndKeepsCode(t *testing.T) {
+	got := reduce("The wise king studies pkg/x/y.go", "ultra-wenyan", 0, 0, true, false, false)
+	if !strings.Contains(got, "智") || !strings.Contains(got, "王") {
+		t.Fatalf("expected wenyan chars in %q", got)
+	}
+	if !strings.Contains(got, "pkg/x/y.go") {
+		t.Fatalf("path must be preserved verbatim in %q", got)
+	}
+}
+
 func TestReducePreservesLiterals(t *testing.T) {
 	in := "See https://example.com/a/b?q=1 and pkg/agent/loop.go, then run `make build` at version 1.2.3."
 	got := reduce(in, "ultra", 0, 0, true, true, true)

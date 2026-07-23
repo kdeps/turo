@@ -132,12 +132,28 @@ tokenizer.
 | **lite** | Adjectives, nouns, verbs, and leftover adverbs/prepositions | ~65% |
 | **full** | Adjectives, nouns, verbs | ~70% |
 | **ultra** (default) | Nouns and verbs only, deduplicated by lemma (base form) | ~70%+ |
+| **wenyan** | full, then swap surviving words for a single 文言 (Classical Chinese) character | CJK models only |
+| **wenyan-all** | lite base (keeps more words) + 文言 swap | CJK models only |
+| **ultra-wenyan** | ultra base + 文言 swap | CJK models only |
 
 ```bash
 echo "the quick brown fox jumps over the lazy dog" | turo --level lite   # quick brown fox jumps over lazy dog
 echo "the quick brown fox jumps over the lazy dog" | turo --level full   # quick brown fox jumps lazy dog
 echo "the quick brown fox jumps over the lazy dog" | turo --level ultra  # fox jump dog
+echo "the wise king studies the old book" | turo --level ultra-wenyan    # 智 王 學 舊 書
 ```
+
+### wenyan modes (CJK-tokenizer models only)
+
+The `wenyan` levels swap each surviving English content word for one Classical
+Chinese character (`water` -> `水`, `king` -> `王`) from a hand-curated core
+lexicon. One char often encodes a whole concept.
+
+**This only saves tokens on CJK-optimized tokenizers** (Qwen, DeepSeek, GLM),
+where a common character is ~1 token. On OpenAI's cl100k a CJK character is 2-3
+tokens, so wenyan is *larger* there — don't use it with OpenAI models. Coverage
+is limited to the core lexicon; unmapped words stay English, and code/paths/URLs
+are preserved verbatim.
 
 In **ultra**, inflections of the same word collapse to one token by their
 dictionary base form: `goes`, `went`, `going` -> `go`; `children` -> `child`;

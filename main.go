@@ -72,8 +72,8 @@ func main() {
 		return
 	}
 
-	if level != "lite" && level != "full" && level != "ultra" {
-		fmt.Fprintf(os.Stderr, "turo: invalid level %q — use lite, full, or ultra\n", level)
+	if !validLevel(level) {
+		fmt.Fprintf(os.Stderr, "turo: invalid level %q — use lite, full, ultra, wenyan, wenyan-all, or ultra-wenyan\n", level)
 		os.Exit(1)
 	}
 
@@ -142,6 +142,12 @@ const maxConvergePasses = 100
 // structured docs keep shrinking for a pass or two before converging. passes>0
 // caps the number of iterations; passes<=0 runs to convergence (safety-capped).
 func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss bool) string {
+	// wenyan modes: reduce at a base level, then swap surviving English words
+	// for their 文言 character. wenyan-all keeps more words (lite) so more get
+	// swapped; ultra-wenyan is the most aggressive.
+	base, wenyan := wenyanBaseLevel(level)
+	level = base
+
 	// Pull URLs, code, paths, and identifiers out before reducing — the
 	// pipeline shreds anything with non-letter characters — then re-append them
 	// verbatim so they survive intact.
@@ -170,6 +176,10 @@ func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss bo
 		out = step
 	}
 
+	if wenyan {
+		out = applyWenyan(out) // swap reduced English words for 文言 chars
+	}
+
 	if len(literals) == 0 {
 		return out
 	}
@@ -178,6 +188,20 @@ func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss bo
 		return lits
 	}
 	return strings.TrimRight(out, "\n ") + " " + lits
+}
+
+// wenyanBaseLevel maps a wenyan level to its base reduction level and reports
+// whether the 文言 swap should run. Non-wenyan levels pass through unchanged.
+func wenyanBaseLevel(level string) (base string, wenyan bool) {
+	switch level {
+	case "wenyan":
+		return "full", true
+	case "wenyan-all":
+		return "lite", true
+	case "ultra-wenyan":
+		return "ultra", true
+	}
+	return level, false
 }
 
 // wrapPreamble wraps reduced text in a tagged block that tells the LLM the
@@ -266,6 +290,16 @@ func swapWords(text string, m map[string]string) string {
 // sameClass reports whether two words share a known dictionary part of speech.
 func sameClass(a, b string) bool {
 	return dictKnows(a) && dictKnows(b) && dictClassify(a) == dictClassify(b)
+}
+
+// validLevel reports whether s is a recognized compression level, including the
+// wenyan variants.
+func validLevel(s string) bool {
+	switch s {
+	case "lite", "full", "ultra", "wenyan", "wenyan-all", "ultra-wenyan":
+		return true
+	}
+	return false
 }
 
 func resolveDefaultLevel() string {
