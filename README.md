@@ -130,8 +130,8 @@ tokenizer.
 | Level | What it keeps | Reduction |
 |-------|--------------|-----------|
 | **lite** | Adjectives, nouns, verbs, and leftover adverbs/prepositions | ~65% |
-| **full** (default) | Adjectives, nouns, verbs | ~70% |
-| **ultra** | Nouns and verbs only, deduplicated by lemma (base form) | ~70%+ |
+| **full** | Adjectives, nouns, verbs | ~70% |
+| **ultra** (default) | Nouns and verbs only, deduplicated by lemma (base form) | ~70%+ |
 
 ```bash
 echo "the quick brown fox jumps over the lazy dog" | turo --level lite   # quick brown fox jumps over lazy dog
