@@ -50,9 +50,15 @@ word for a single Classical Chinese character (for CJK-tokenizer models — see
 閱引請作察變檔驗碼引退存為要查者增試 untested 破診後證文更映交訊覺安隙 unsanitized 戶入 hardcoded 須標併
 ```
 
-766 -> 69 characters. On a CJK-tokenizer model (Qwen, DeepSeek; ~1 token/char)
-that is ~42 tokens; on OpenAI's cl100k a character is 2-3 tokens so it is 67
-there — use it only with CJK models. See below.
+766 -> 69 characters (35 Han chars). Token counts for that output:
+
+| tokenizer | tokens |
+|-----------|--------|
+| Qwen / DeepSeek / GLM (~1 per Han char) | **~42** |
+| OpenAI cl100k (2-3 per Han char) | 67 |
+
+So wenyan **wins on CJK-tokenizer models** (~42 vs plain `ultra`'s ~71) but
+loses on OpenAI (67 vs 41) — use it only with CJK models. See below.
 
 No articles. No prepositions. No adverbs. No repeated words. Only the content
 words that carry meaning, deduplicated, in reading order. Every prompt, every
