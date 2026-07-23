@@ -85,20 +85,6 @@ func TestWrapPreamble(t *testing.T) {
 	}
 }
 
-func TestStem(t *testing.T) {
-	cases := map[string]string{
-		"running": "run",
-		"jumps":   "jump",
-		"created": "creat",
-		"testing": "test",
-	}
-	for in, want := range cases {
-		if got := stem(in); got != want {
-			t.Errorf("stem(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestLemma(t *testing.T) {
 	cases := map[string]string{
 		// irregular verbs
@@ -109,8 +95,18 @@ func TestLemma(t *testing.T) {
 		// regular inflections that reduce to a known base
 		"goes": "go", "going": "go", "runs": "run", "running": "run",
 		"sees": "see", "servers": "server", "processes": "process",
+		// dropped-e restored: -ing / -ed base ends in "e"
+		"creating": "create", "using": "use", "moved": "move",
+		// doubled consonant collapsed
+		"stopped": "stop",
+		// -ies plural
+		"companies": "company",
+		// base words the naive stemmer used to corrupt must stay put:
+		// -er is derivational, -ss is not a plural
+		"render": "render", "pass": "pass", "process": "process",
+		"server": "server", "user": "user",
 		// already-base words are unchanged
-		"go": "go", "server": "server", "fox": "fox",
+		"go": "go", "fox": "fox",
 	}
 	for in, want := range cases {
 		if got := lemma(in); got != want {

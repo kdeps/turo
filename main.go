@@ -272,29 +272,36 @@ var ultraStopWords = map[string]bool{
 	"often": true, "always": true, "never": true, "quite": true, "rather": true,
 }
 
-func stem(w string) string {
-	doubles := []struct{ suffix, replacement string }{
-		{"nning", "n"}, {"pping", "p"}, {"tting", "t"}, {"ssing", "s"},
-		{"gging", "g"}, {"mming", "m"}, {"lling", "l"}, {"rring", "r"},
-		{"pped", "p"}, {"tted", "t"}, {"ssed", "s"}, {"gged", "g"},
-		{"mmed", "m"}, {"nned", "n"}, {"lled", "l"}, {"rred", "r"},
-	}
-	for _, d := range doubles {
-		if strings.HasSuffix(w, d.suffix) {
-			return w[:len(w)-len(d.suffix)] + d.replacement
+// baseForms yields candidate base forms for an inflected word, best first.
+// It only removes true inflectional suffixes (-ing, -ed, -s/-es/-ies); it does
+// NOT strip derivational suffixes like -er/-or/-tion/-ment, which turn a base
+// word into a different word ("render" is not "rend"+er, "server" is not a form
+// of "serv"). Each candidate is validated against the dictionary by the caller.
+func baseForms(w string) []string {
+	var c []string
+	switch {
+	case strings.HasSuffix(w, "ing") && len(w) > 4:
+		root := w[:len(w)-3]
+		c = append(c, root+"e", root) // creating->create, using->use, testing->test
+		if n := len(root); n >= 2 && root[n-1] == root[n-2] {
+			c = append(c, root[:n-1]) // running->run
 		}
-	}
-	for _, s := range []string{"ingly", "ment", "ments", "tion", "ness", "able", "ible", "less", "ful", "ish"} {
-		if strings.HasSuffix(w, s) && len(w)-len(s) >= 2 {
-			return w[:len(w)-len(s)]
+	case strings.HasSuffix(w, "ed") && len(w) > 3:
+		root := w[:len(w)-2]
+		c = append(c, root+"e", root) // moved->move, used->use, tested->test
+		if n := len(root); n >= 2 && root[n-1] == root[n-2] {
+			c = append(c, root[:n-1]) // stopped->stop
 		}
+	case strings.HasSuffix(w, "ies") && len(w) > 4:
+		c = append(c, w[:len(w)-3]+"y") // companies->company
+	case strings.HasSuffix(w, "ss"):
+		// pass, class, process — not a plural; no candidate.
+	case strings.HasSuffix(w, "es") && len(w) > 3:
+		c = append(c, w[:len(w)-2], w[:len(w)-1]) // boxes->box, goes->go, sees->see
+	case strings.HasSuffix(w, "s") && len(w) > 3:
+		c = append(c, w[:len(w)-1]) // runs->run, servers->server
 	}
-	for _, s := range []string{"ing", "ed", "es", "s", "ly", "er", "est", "or"} {
-		if strings.HasSuffix(w, s) && len(w)-len(s) >= 2 {
-			return w[:len(w)-len(s)]
-		}
-	}
-	return w
+	return c
 }
 
 // irregularLemma maps irregular inflections to their base form. Suffix
@@ -365,29 +372,23 @@ var irregularLemma = map[string]string{
 }
 
 // lemma reduces a word to its dictionary base form for deduplication so that
-// different inflections of the same word collapse to one token. A reduction is
-// accepted only when it lands on a word the dictionary knows, so mangled
-// non-words ("serv", "proces") are never emitted — those can tokenize to MORE
-// tokens than the original. When no reduction reaches a real word, the original
-// surface form is kept. Order:
+// different inflections of the same word collapse to one token. A candidate
+// base form is accepted only when the dictionary knows it, so wrong or mangled
+// reductions ("render" -> "rend", "pass" -> "pas", "serv") are never emitted.
+// When no candidate is a known word, the original surface form is kept. Order:
 //  1. irregular table ("went" -> "go", "children" -> "child")
-//  2. drop a trailing "s" if that yields a known word ("servers" -> "server",
-//     "sees" -> "see", "runs" -> "run")
-//  3. suffix stemming, accepted only if it lands on a known word
-//     ("running" -> "run", "processes" -> "process", "going" -> "go")
-//  4. otherwise keep the word unchanged
+//  2. the first inflectional base form the dictionary recognizes
+//     ("creating" -> "create", "servers" -> "server", "sees" -> "see")
+//  3. otherwise keep the word unchanged
 // Used only in the most aggressive level.
 func lemma(w string) string {
 	if l, ok := irregularLemma[w]; ok {
 		return l
 	}
-	if len(w) > 3 && strings.HasSuffix(w, "s") {
-		if alt := w[:len(w)-1]; dictKnows(alt) {
-			return alt
+	for _, c := range baseForms(w) {
+		if c != w && dictKnows(c) {
+			return c
 		}
-	}
-	if s := stem(w); s != w && dictKnows(s) {
-		return s
 	}
 	return w
 }
