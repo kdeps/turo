@@ -14,7 +14,7 @@ var wenyanMap = map[string]string{
 	// pronouns / particles
 	"i": "吾", "you": "爾", "he": "其", "she": "其", "we": "吾", "they": "其",
 	"this": "此", "that": "彼", "here": "茲", "there": "彼",
-	"not": "不", "no": "無", "yes": "是", "all": "皆", "each": "每",
+	"not": "不", "no": "無", "yes": "諾", "all": "皆", "each": "每",
 	"and": "及", "or": "或", "but": "然", "with": "以", "of": "之",
 	"very": "甚", "more": "益", "most": "最", "again": "復", "also": "亦",
 
