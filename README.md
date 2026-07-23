@@ -71,7 +71,6 @@ Install turo once and any coding agent that can shell out to a binary — Claude
 
 | Method | Command |
 |--------|---------|
-| **npx** | `npx turo` |
 | **Homebrew** | `brew install kdeps/tap/turo` |
 | **Go** | `go install github.com/kdeps/turo@latest` |
 | **Shell** | `curl -fsSL https://raw.githubusercontent.com/kdeps/turo/main/install.sh \| sh` |

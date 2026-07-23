@@ -1,0 +1,109 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: turo
+    binary: turo
+    main: ./
+    # turo is pure Go — cross-compile natively, no CGO/zig toolchain needed.
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    flags:
+      - -trimpath
+      - -buildvcs=false
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+release:
+  make_latest: true
+  prerelease: false
+
+# SPDX SBOM per archive (syft).
+sboms:
+  - artifacts: archive
+
+# Keyless cosign signature over the checksum file (Sigstore OIDC via the
+# workflow's id-token permission). Verify with:
+#   cosign verify-blob --new-bundle-format \
+#     --bundle checksums.txt.cosign.bundle \
+#     --certificate-identity-regexp 'github.com/kdeps/turo' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     checksums.txt
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.cosign.bundle"
+    output: true
+    args:
+      - sign-blob
+      - --new-bundle-format
+      - --bundle=${signature}
+      - ${artifact}
+      - --yes
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+brews:
+  - name: turo
+    skip_upload: false
+    commit_author:
+      name: jjuliano
+      email: joelbryan.julianoe@gmail.com
+    directory: Formula
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+    homepage: "https://github.com/kdeps/turo"
+    description: "Point more. Token less. Reduce text to its content words to cut input tokens."
+    license: "Apache-2.0"
+    repository:
+      owner: kdeps
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+
+nfpms:
+  - id: turo-pkg
+    package_name: turo
+    homepage: "https://github.com/kdeps/turo"
+    maintainer: Joel Bryan Juliano <joelbryan.juliano@gmail.com>
+    description: "Point more. Token less. Reduce text to its content words to cut input tokens."
+    vendor: Kdeps
+    license: Apache-2.0
+    formats:
+      - deb
+      - apk
