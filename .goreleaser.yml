@@ -8,7 +8,7 @@ builds:
   - id: turo
     binary: turo
     ldflags:
-      - -s -w
+      - -s -w -X main.version={{ .Version }}
     env:
       - CGO_ENABLED=0
     goos:
@@ -20,7 +20,7 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
-  - format: tar.gz
+  - formats: ["tar.gz"]
     name_template: "turo_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
@@ -34,10 +34,10 @@ changelog:
       - "^test:"
       - "^chore:"
 
-brews:
+homebrew_casks:
   - repository:
       owner: kdeps
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/kdeps/turo"
-    description: "Stream editor — text in, kartographer graph out"
-    license: "Apache-2.0"
+    description: "Point more. Token less. Reduce text to its content words to cut input tokens."
