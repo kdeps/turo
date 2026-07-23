@@ -149,14 +149,26 @@ Set default via `TURO_LEVEL` env var.
 ## Proxy — reduce every request for any agent
 
 To compress **all** input for an agent that turo can't reach from the inside
-(Claude Code, Cursor, ...), run turo as an OpenAI/Anthropic-compatible reverse
-proxy and point the agent's base URL at it:
+(Claude Code, Codex, ...), route the agent's requests through turo.
+
+### `turo run` — launch an agent with everything reduced (turnkey)
+
+```bash
+turo run claude          # every claude request reduced, base URL wired for you
+turo run codex           # OPENAI_BASE_URL wired instead
+turo run                 # list supported agents
+```
+
+`turo run` starts an in-process proxy on a free port, points the agent's
+base-URL env var at it (`ANTHROPIC_BASE_URL` for claude, `OPENAI_BASE_URL` for
+OpenAI-compatible agents), execs the agent, and stops the proxy when it exits.
+One command, no exports, no `/turo` inside the agent. Supported:
+`claude`, `codex`, `opencode`, `qwen`, `aider`, `crush`, `goose`, `amp`.
+
+### `turo -proxy` — the proxy on its own
 
 ```bash
 turo -proxy -upstream https://api.openai.com   # listens on 127.0.0.1:8787
-```
-
-```bash
 export OPENAI_BASE_URL=http://127.0.0.1:8787/v1
 ```
 

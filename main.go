@@ -17,10 +17,12 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -73,6 +75,35 @@ func main() {
 	if level != "lite" && level != "full" && level != "ultra" {
 		fmt.Fprintf(os.Stderr, "turo: invalid level %q — use lite, full, or ultra\n", level)
 		os.Exit(1)
+	}
+
+	// `turo run <agent> [args...]`: launch an agent with every request reduced
+	// through an in-process proxy.
+	if flag.Arg(0) == "run" {
+		if flag.NArg() < 2 {
+			listRunTargets()
+			return
+		}
+		upstreamSet := false
+		flag.Visit(func(f *flag.Flag) {
+			if f.Name == "upstream" {
+				upstreamSet = true
+			}
+		})
+		override := ""
+		if upstreamSet {
+			override = *upstream
+		}
+		err := runAgent(flag.Arg(1), flag.Args()[2:], override, proxyConfig{
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss,
+		})
+		// Print turo's own setup errors; an agent that exits non-zero already
+		// reported to its stderr.
+		var exitErr *exec.ExitError
+		if err != nil && !errors.As(err, &exitErr) {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		os.Exit(runExitCode(err))
 	}
 
 	if *proxyFlag {
