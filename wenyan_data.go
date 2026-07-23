@@ -95,6 +95,46 @@ var wenyanMap = map[string]string{
 	"page": "頁", "model": "型", "token": "符", "machine": "機", "memory": "憶",
 	"tool": "具", "agent": "使", "task": "務", "mode": "式", "input": "入",
 	"output": "出", "function": "函", "object": "物", "class": "類", "method": "術",
+
+	// more verbs (dev + general)
+	"set": "設", "allow": "許", "deny": "拒", "enable": "啟", "disable": "禁",
+	"apply": "施", "delete": "刪", "insert": "插", "update": "更", "select": "選",
+	"filter": "濾", "sort": "序", "count": "計", "print": "印", "log": "錄",
+	"load": "載", "save": "存", "exec": "執", "parse": "析", "format": "格",
+	"encode": "編", "decode": "解", "compress": "壓", "connect": "連", "request": "請",
+	"respond": "應", "reply": "覆", "handle": "理", "process": "治", "manage": "管",
+	"control": "控", "monitor": "督", "trace": "跡", "compile": "譯", "install": "裝",
+	"configure": "置", "register": "註", "validate": "核", "verify": "驗", "check": "查",
+	"examine": "察", "review": "閱", "approve": "准", "reject": "駁", "submit": "呈",
+	"cancel": "撤", "resume": "續", "complete": "竟", "fail": "敗", "succeed": "濟",
+	"raise": "舉", "replace": "換", "compare": "較", "match": "配", "reduce": "減",
+	"group": "組", "define": "定", "assign": "賦", "deploy": "佈", "release": "釋",
+	"introduce": "引", "exist": "存", "confirm": "證", "reflect": "映",
+	"explain": "喻", "notice": "覺", "flag": "標", "merge": "併", "debug": "診",
+
+	// tech nouns
+	"host": "宿", "port": "埠", "header": "頭", "cache": "藏", "buffer": "緩",
+	"queue": "隊", "stack": "疊", "thread": "緒", "disk": "碟", "storage": "儲",
+	"database": "庫", "index": "引", "module": "模", "package": "包", "library": "冊",
+	"framework": "架", "route": "線", "url": "址", "directory": "夾", "warning": "警",
+	"exception": "異", "bug": "蟲", "issue": "題", "branch": "枝", "version": "版",
+	"tag": "籤", "secret": "秘", "password": "碼", "credential": "憑", "session": "話",
+	"permission": "權", "role": "職", "team": "隊", "project": "案", "job": "役",
+	"service": "侍", "result": "果", "status": "態", "state": "況", "config": "置",
+	"setting": "設", "option": "項", "param": "參", "variable": "變", "constant": "恆",
+	"array": "陣", "string": "串", "integer": "整", "api": "介", "endpoint": "端",
+	"behavior": "為", "author": "者", "security": "安", "credentials": "憑",
+	"documentation": "文", "regression": "退", "functionality": "能", "vulnerability": "隙",
+
+	// particles / common function words
+	"if": "若", "when": "時", "where": "處", "because": "故", "while": "際",
+	"until": "至", "after": "後", "before": "前", "now": "今", "today": "今",
+	"always": "恆", "never": "莫", "often": "常", "must": "須", "should": "宜",
+	"can": "能", "will": "將", "may": "或", "then": "則", "so": "乃",
+	"both": "皆", "carefully": "慎", "clearly": "明", "immediately": "即", "whether": "否",
+	"appropriate": "宜", "potential": "或", "existing": "存", "difficult": "難", "subtle": "微",
+	"important": "要", "later": "後", "commit": "交", "message": "訊",
+	"updated": "更", "changed": "變", "likely": "或", "really": "甚",
 }
 
 // applyWenyan replaces each English word with its 文言 character when the map

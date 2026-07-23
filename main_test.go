@@ -240,8 +240,6 @@ func TestWenyanBaseLevel(t *testing.T) {
 		base   string
 		wenyan bool
 	}{
-		"wenyan":       {"full", true},
-		"wenyan-all":   {"lite", true},
 		"ultra-wenyan": {"ultra", true},
 		"ultra":        {"ultra", false},
 		"full":         {"full", false},
@@ -287,4 +285,3 @@ func TestParseToGraph_UltraLemmaDedup(t *testing.T) {
 		t.Fatalf("expected lemma-deduped %q, got %q", "fox go run", got)
 	}
 }
-

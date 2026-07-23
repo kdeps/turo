@@ -42,36 +42,17 @@ confirm documentation updated reflect commit message notice security
 vulnerability unsanitized user input hardcoded must flag merge
 ```
 
-Or with the **wenyan** modes, which additionally swap words for a single
-Classical Chinese character (for CJK-tokenizer models — see [wenyan
-modes](#wenyan-modes-cjk-tokenizer-models-only)):
+Or **69 characters** with `--level ultra-wenyan`, which additionally swaps each
+word for a single Classical Chinese character (for CJK-tokenizer models — see
+[ultra-wenyan](#ultra-wenyan-cjk-tokenizer-models-only)):
 
 ```
---level wenyan        # full base + 文言 (62 cl100k tok on this input)
-Reviewing 引 request 作 examine changed files verify 新碼 introduce regressions
-existing behavior important check author added appropriate tests functionality
-untested 破 subtle ways difficult debug later 亦 confirm documentation updated
-reflect changes commit messages explain notice potential security
-vulnerabilities unsanitized 戶入 hardcoded credentials must flag merged
-
---level wenyan-all    # lite base, keeps more words (69 cl100k tok)
-Reviewing 引 request 作 carefully examine changed files verify 新碼 introduce
-regressions existing behavior important check whether author added appropriate
-tests functionality because untested 破 subtle ways difficult debug later 亦
-confirm documentation updated reflect changes commit messages clearly explain
-why if notice potential security vulnerabilities unsanitized 戶入 hardcoded
-credentials must flag immediately merged
-
---level ultra-wenyan  # ultra base + 文言 (54 cl100k tok)
-Review 引 request 作 examine 變檔 verify 碼 introduce regression exist behavior
-important check author 增試 untested 破 debug later confirm documentation updated
-reflect commit message notice security vulnerability unsanitized 戶入 hardcoded
-must flag merge
+閱引請作察變檔驗碼引退存為要查者增試 untested 破診後證文更映交訊覺安隙 unsanitized 戶入 hardcoded 須標併
 ```
 
-On this technical English the core 文言 lexicon covers few words, so wenyan does
-not beat plain `ultra` here (and CJK chars cost more on OpenAI's cl100k) — it
-pays off on plain prose and CJK-tokenizer models. See below.
+766 -> 69 characters. On a CJK-tokenizer model (Qwen, DeepSeek; ~1 token/char)
+that is ~42 tokens; on OpenAI's cl100k a character is 2-3 tokens so it is 67
+there — use it only with CJK models. See below.
 
 No articles. No prepositions. No adverbs. No repeated words. Only the content
 words that carry meaning, deduplicated, in reading order. Every prompt, every
@@ -163,9 +144,7 @@ tokenizer.
 | **lite** | Adjectives, nouns, verbs, and leftover adverbs/prepositions | ~65% |
 | **full** | Adjectives, nouns, verbs | ~70% |
 | **ultra** (default) | Nouns and verbs only, deduplicated by lemma (base form) | ~70%+ |
-| **wenyan** | full, then swap surviving words for a single 文言 (Classical Chinese) character | CJK models only |
-| **wenyan-all** | lite base (keeps more words) + 文言 swap | CJK models only |
-| **ultra-wenyan** | ultra base + 文言 swap | CJK models only |
+| **ultra-wenyan** | ultra, then swap surviving words for a single 文言 (Classical Chinese) character | CJK models only |
 
 ```bash
 echo "the quick brown fox jumps over the lazy dog" | turo --level lite   # quick brown fox jumps over lazy dog
@@ -174,46 +153,31 @@ echo "the quick brown fox jumps over the lazy dog" | turo --level ultra  # fox j
 echo "the wise king studies the old book" | turo --level ultra-wenyan    # 智 王 學 舊 書
 ```
 
-### wenyan modes (CJK-tokenizer models only)
+### ultra-wenyan (CJK-tokenizer models only)
 
-The `wenyan` levels swap each surviving English content word for one Classical
-Chinese character (`water` -> `水`, `king` -> `王`) from a hand-curated core
-lexicon. One char often encodes a whole concept.
+`ultra-wenyan` reduces at ultra, then swaps each surviving English content word
+for one Classical Chinese character (`water` -> `水`, `king` -> `王`, `verify` ->
+`驗`) from a ~380-entry hand-curated lexicon. One char per concept, no spaces
+(Classical Chinese has none).
 
-Same input, measured — `The wise king uses water and fire. The person sees the
-mountain and the old tree.`:
+Two examples, measured:
 
-| level | output | chars | cl100k tokens | CJK-model tokens (~1/char) |
-|-------|--------|-------|---------------|-----------------------------|
-| input | the wise king uses water and fire... | 80 | 18 | ~18 |
-| **ultra** | `Wise king use water fire person see mountain old tree` | 53 | **11** | ~13 |
-| **ultra-wenyan** | `智王用水火人見山舊樹` | **10** | 15 | **~10** |
+| input | ultra | ultra-wenyan | chars | cl100k | CJK-model (~1/char) |
+|-------|-------|--------------|-------|--------|----------------------|
+| `The wise king uses water and fire...` (80 ch) | `Wise king use water fire person see mountain old tree` | `智王用水火人見山舊樹` | **10** | 15 | **~10** |
+| the PR-review paragraph (766 ch) | 283 ch / 41 tok | `閱引請作察變檔驗碼引退存為要查者增試 untested 破診後證文更映交訊覺安隙 unsanitized 戶入 hardcoded 須標併` | **69** | 67 | **~42** |
 
-wenyan collapses to the fewest **characters** (10 vs 53) — but a CJK character
-is 2-3 tokens on OpenAI's cl100k, so `ultra-wenyan` is *larger* there (15 > 11).
-**It only wins on CJK-optimized tokenizers** (Qwen, DeepSeek, GLM), where a
-common character is ~1 token — then those 10 chars are ~10 tokens and the density
-pays off on longer text. Don't use it with OpenAI models.
+It collapses to the fewest **characters** (766 -> 69 on the paragraph). A CJK
+character is 2-3 tokens on OpenAI's cl100k, so `ultra-wenyan` is *larger* there
+(67 > 41). **It only wins on CJK-optimized tokenizers** (Qwen, DeepSeek, GLM),
+where a common character is ~1 token — then those 69 chars are ~42 tokens vs
+plain ultra's 71. Don't use it with OpenAI models.
 
 turo's own token estimator counts CJK as 1 rune = 1 token (matching those
-models), so it treats wenyan as a reduction and never rejects it as "larger".
-
-**Coverage is the limiter.** The core lexicon is common/classical vocabulary,
-not dev jargon — on technical text most words stay English. The PR-review
-paragraph from the top of this README (`ultra-wenyan`) only swaps a handful:
-
-```
-Review 引 request 作 examine 變檔 verify 碼 introduce regression exist behavior
-important check author 增試 untested 破 debug later confirm documentation updated
-reflect commit message notice security vulnerability unsanitized 戶入 hardcoded
-must flag merge
-```
-
-That mix is the worst case: the few CJK chars cost 2-3 cl100k tokens each *and*
-the English words remain, so on OpenAI it is 54 tokens vs plain `ultra`'s 41.
-wenyan shines on plain prose with high lexicon coverage; for technical text you
-must extend `wenyanMap`. Unmapped words stay English; code/paths/URLs are
-preserved verbatim.
+models), so it treats `ultra-wenyan` as a reduction and never rejects it. Words
+outside the lexicon stay English (`untested`, `unsanitized`, `hardcoded`
+above); code/paths/URLs are preserved verbatim. Extend `wenyanMap` for more
+coverage.
 
 In **ultra**, inflections of the same word collapse to one token by their
 dictionary base form: `goes`, `went`, `going` -> `go`; `children` -> `child`;
