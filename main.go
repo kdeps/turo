@@ -404,12 +404,30 @@ func baseForms(w string) []string {
 		c = append(c, w[:len(w)-3]+"y") // companies->company
 	case strings.HasSuffix(w, "ss"):
 		// pass, class, process — not a plural; no candidate.
+	case nonPluralS(w):
+		// news, series, physics, analysis, virus — singular nouns that end in
+		// s; de-pluralizing them yields the wrong word ("news" -> "new").
 	case strings.HasSuffix(w, "es") && len(w) > 3:
 		c = append(c, w[:len(w)-2], w[:len(w)-1]) // boxes->box, goes->go, sees->see
 	case strings.HasSuffix(w, "s") && len(w) > 3:
 		c = append(c, w[:len(w)-1]) // runs->run, servers->server
 	}
 	return c
+}
+
+// nonPluralNouns are singular nouns ending in s that must not be de-pluralized.
+var nonPluralNouns = map[string]bool{
+	"news": true, "series": true, "species": true, "means": true,
+}
+
+// nonPluralS reports whether a word ending in s is a singular noun, not a
+// plural: an explicit exception, or a Latin/Greek singular ending (-us, -is,
+// -ics like virus, analysis, physics).
+func nonPluralS(w string) bool {
+	return nonPluralNouns[w] ||
+		strings.HasSuffix(w, "us") ||
+		strings.HasSuffix(w, "is") ||
+		strings.HasSuffix(w, "ics")
 }
 
 // irregularLemma maps irregular inflections to their base form. Suffix

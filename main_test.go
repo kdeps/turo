@@ -105,6 +105,9 @@ func TestLemma(t *testing.T) {
 		// -er is derivational, -ss is not a plural
 		"render": "render", "pass": "pass", "process": "process",
 		"server": "server", "user": "user",
+		// singular nouns ending in s must not be de-pluralized
+		"news": "news", "analysis": "analysis", "virus": "virus",
+		"physics": "physics", "series": "series",
 		// already-base words are unchanged
 		"go": "go", "fox": "fox",
 	}
