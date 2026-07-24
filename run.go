@@ -68,8 +68,10 @@ func runAgent(agent string, args []string, upstreamOverride string, pcfg proxyCo
 	defer func() { _ = srv.Close() }()
 
 	baseURL := "http://" + ln.Addr().String() + t.suffix
-	fmt.Fprintf(os.Stderr, "turo run: %s via proxy %s -> %s (reducing %s)\n",
-		agent, ln.Addr().String(), t.upstream, rolesLabel(pcfg.all))
+	if !pcfg.quiet {
+		fmt.Fprintf(os.Stderr, "turo run: %s via proxy %s -> %s (reducing %s)\n",
+			agent, ln.Addr().String(), t.upstream, rolesLabel(pcfg.all))
+	}
 
 	cmd := exec.Command(t.cmd, args...) //nolint:gosec // user-invoked agent
 	cmd.Env = os.Environ()
@@ -89,6 +91,15 @@ func listRunTargets() {
 		}
 		fmt.Printf("  [%s] turo run %s\n", mark, id)
 	}
+	fmt.Println("\nFlags (before the agent name):")
+	fmt.Println("  -level lite|full|ultra|wenyan   compression level")
+	fmt.Println("  -filler/-synonyms/-gloss=false  disable a reduction stage")
+	fmt.Println("  -arrows                         connective phrases -> \"->\"")
+	fmt.Println("  -proxy-all                      reduce every role, not just user + tool")
+	fmt.Println("  -proxy-verbose                  echo each message's before -> after text")
+	fmt.Println("  -proxy-quiet                    hide per-request proxy output")
+	fmt.Println("  -upstream URL                   override the agent's upstream endpoint")
+	fmt.Println("\nExample: turo run -level ultra -proxy-verbose codex")
 }
 
 // runExitCode extracts an agent's exit code from a cmd.Run error, defaulting to
