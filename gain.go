@@ -33,7 +33,7 @@ type gainEvent struct {
 //  3. ~/.turo/gain.jsonl                  (fallback if the OS dir is unavailable)
 func gainPath() string {
 	if d := os.Getenv("TURO_HOME"); d != "" {
-		return filepath.Join(d, "gain.jsonl")
+		return filepath.Join(expandPath(d), "gain.jsonl")
 	}
 	if d, err := os.UserConfigDir(); err == nil && d != "" {
 		return filepath.Join(d, "turo", "gain.jsonl")

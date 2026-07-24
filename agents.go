@@ -58,6 +58,20 @@ func home() string {
 	return h
 }
 
+// expandPath resolves a leading ~/ or embedded $HOME in a user-supplied path.
+// os.Getenv returns literal strings, so TURO_HOME=~/data or CLAUDE_CONFIG_DIR=$HOME/.claude
+// would otherwise fail with "no such file or directory".
+func expandPath(p string) string {
+	if p == "" {
+		return ""
+	}
+	if strings.HasPrefix(p, "~/") {
+		p = filepath.Join(home(), p[2:])
+	}
+	p = strings.ReplaceAll(p, "$HOME", home())
+	return p
+}
+
 // detected reports whether an agent's detect spec matches this machine.
 func detected(spec string) bool {
 	for _, clause := range strings.Split(spec, "||") {
@@ -109,12 +123,12 @@ func configDir(id string) string {
 	switch id {
 	case "claude":
 		if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
-			return d
+			return expandPath(d)
 		}
 		return filepath.Join(home(), ".claude")
 	case "opencode":
 		if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
-			return filepath.Join(d, "opencode")
+			return filepath.Join(expandPath(d), "opencode")
 		}
 		return filepath.Join(home(), ".config", "opencode")
 	}

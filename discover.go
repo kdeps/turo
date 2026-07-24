@@ -26,10 +26,10 @@ import (
 //  3. ~/.claude/projects             (default install location)
 func claudeProjectsDir() string {
 	if d := os.Getenv("TURO_DISCOVER_DIR"); d != "" {
-		return d
+		return expandPath(d)
 	}
 	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
-		return filepath.Join(d, "projects")
+		return filepath.Join(expandPath(d), "projects")
 	}
 	return filepath.Join(home(), ".claude", "projects")
 }
