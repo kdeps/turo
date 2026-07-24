@@ -33,7 +33,7 @@ var protectedPatterns = []*regexp.Regexp{
 	regexp.MustCompile("(?s)```.*?```"),                              // fenced code
 	regexp.MustCompile("`[^`\n]+`"),                                  // inline code
 	regexp.MustCompile(`(?i)\bhttps?://\S+`),                         // URLs
-	regexp.MustCompile(`\b[\w.-]*[/\\][\w./\\-]+`),                   // paths
+	regexp.MustCompile(`(?:[/~])?[\w.-]*[/\\][\w./\\-]+`),            // paths (leading / or ~ for absolute/home paths)
 	regexp.MustCompile(`\b[A-Z][A-Za-z0-9]*(_[A-Z][A-Za-z0-9]*)+\b`), // CONST_CASE
 	regexp.MustCompile(`\b\w+\.\w+(\.\w+)*(\(\))?`),                  // dotted.method / pkg.fn()
 	regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*\s*\([^)]*\)`),         // function calls
