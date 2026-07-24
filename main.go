@@ -51,6 +51,7 @@ Usage:
   turo run <agent> [flags]    launch a coding agent with requests reduced
   turo run                    list run targets and their flags
   turo gain [--history]       report estimated tokens saved so far
+  turo discover               estimate tokens turo could save on your Claude Code history
   turo -install-agents        register the turo skill with coding agents
   turo -list-agents           list supported coding agents
 
@@ -101,6 +102,15 @@ Flags:
 	if !validLevel(level) {
 		fmt.Fprintf(os.Stderr, "turo: invalid level %q — use lite, full, ultra, or wenyan\n", level)
 		os.Exit(1)
+	}
+
+	// `turo discover`: scan Claude Code history and estimate the tokens turo
+	// would have saved on sessions that ran without it.
+	if flag.Arg(0) == "discover" {
+		showDiscover(proxyConfig{
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
+		})
+		return
 	}
 
 	// `turo run <agent> [args...]`: launch an agent with every request reduced

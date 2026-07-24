@@ -57,6 +57,30 @@ func TestPct(t *testing.T) {
 	}
 }
 
+func TestHumanCount(t *testing.T) {
+	cases := []struct {
+		n    int
+		want string
+	}{
+		{0, "0"},
+		{478, "478"},
+		{999, "999"},
+		{1000, "1k"},
+		{1200, "1.2k"},
+		{1234, "1.23k"},
+		{53011, "53.01k"},
+		{13524093, "13.52m"},
+		{100000000, "100m"},
+		{1200000000, "1.2b"},
+		{1660000000000, "1.66t"},
+	}
+	for _, c := range cases {
+		if got := humanCount(c.n); got != c.want {
+			t.Errorf("humanCount(%d)=%q want %q", c.n, got, c.want)
+		}
+	}
+}
+
 // A malformed line in the log must be skipped without hiding valid records.
 func TestReadGainSkipsCorruptLines(t *testing.T) {
 	dir := t.TempDir()

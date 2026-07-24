@@ -88,6 +88,7 @@ turo -gloss=false                 # skip the defining-word swap (less lossy)
 turo -arrows=false                # keep connective phrases verbatim (skip the -> swap)
 turo gain                         # estimated tokens saved so far
 turo gain --history               # per-reduction history, newest first
+turo discover                     # tokens turo could save on your Claude Code history
 turo --version                    # print version
 ```
 
@@ -134,6 +135,33 @@ folder for each reduction.
 
 Counts are estimates from the built-in `cl100k`-style approximation, not a real
 tokenizer — treat them as a trend, not a bill.
+
+## Missed savings — `turo discover`
+
+`turo gain` totals reductions that happened. `turo discover` shows the ones that
+didn't: it scans your existing Claude Code history and estimates how many tokens
+turo would have saved had those sessions run through the proxy.
+
+```text
+turo discover — scanned 403 sessions in ~/.claude/projects
+  messages       53011 reducible (all roles)
+  tokens in      13524093
+  would be out   6246528
+  would save     7277565 (53%)
+
+by project:
+  ~/Projects/api          29490 msgs  saved 3242664 (49%)
+  ~/Projects/web          19943 msgs  saved 3142015 (57%)
+
+these sessions ran without turo — capture the savings next time with:
+  turo run claude
+```
+
+It reads the per-project session logs under `~/.claude/projects` (set
+`CLAUDE_CONFIG_DIR` if Claude Code stores them elsewhere), applying the same role
+gating and compression flags (`-level`, `-filler`, `-gloss`, `-arrows`,
+`-proxy-all`) as the proxy — so the estimate reflects what `turo run claude`
+would actually do. Nothing is sent anywhere; the scan is local and read-only.
 
 ## Pipeline
 

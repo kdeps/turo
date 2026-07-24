@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -109,9 +110,9 @@ func showGain(history bool) {
 	saved := before - after
 
 	fmt.Printf("turo gain — %d reductions\n", len(events))
-	fmt.Printf("  tokens in     %d\n", before)
-	fmt.Printf("  tokens out    %d\n", after)
-	fmt.Printf("  tokens saved  %d (%s)\n", saved, pct(saved, before))
+	fmt.Printf("  tokens in     %s\n", humanCount(before))
+	fmt.Printf("  tokens out    %s\n", humanCount(after))
+	fmt.Printf("  tokens saved  %s (%s)\n", humanCount(saved), pct(saved, before))
 
 	showByFolder(events)
 
@@ -126,8 +127,8 @@ func showGain(history bool) {
 		e := events[i]
 		when := time.Unix(e.T, 0).Format("2006-01-02 15:04")
 		s := e.Before - e.After
-		fmt.Printf("  %s  %-6s %5d -> %-5d  saved %d (%s)  %s\n",
-			when, e.Cmd, e.Before, e.After, s, pct(s, e.Before), shortDir(e.Dir))
+		fmt.Printf("  %s  %-6s %7s -> %-7s  saved %s (%s)  %s\n",
+			when, e.Cmd, humanCount(e.Before), humanCount(e.After), humanCount(s), pct(s, e.Before), shortDir(e.Dir))
 		shown++
 	}
 	if len(events) > maxRows {
@@ -166,7 +167,21 @@ func showByFolder(events []gainEvent) {
 	if len(order) < 2 {
 		return
 	}
-	// Sort by tokens saved, descending (simple selection sort — the list is small).
+	sortFoldersBySaved(order, stats)
+	fmt.Println("\nby folder:")
+	for _, d := range order {
+		s := stats[d]
+		saved := s.before - s.after
+		fmt.Printf("  %-40s %4d reductions  saved %s (%s)\n",
+			shortDir(s.dir), s.n, humanCount(saved), pct(saved, s.before))
+	}
+}
+
+func savedOf(s *folderStat) int { return s.before - s.after }
+
+// sortFoldersBySaved orders folder keys by tokens saved, descending, in place.
+// A simple selection sort — the folder list is small (one entry per project).
+func sortFoldersBySaved(order []string, stats map[string]*folderStat) {
 	for i := 0; i < len(order); i++ {
 		max := i
 		for j := i + 1; j < len(order); j++ {
@@ -176,16 +191,7 @@ func showByFolder(events []gainEvent) {
 		}
 		order[i], order[max] = order[max], order[i]
 	}
-	fmt.Println("\nby folder:")
-	for _, d := range order {
-		s := stats[d]
-		saved := s.before - s.after
-		fmt.Printf("  %-40s %4d reductions  saved %d (%s)\n",
-			shortDir(s.dir), s.n, saved, pct(saved, s.before))
-	}
 }
-
-func savedOf(s *folderStat) int { return s.before - s.after }
 
 // shortDir replaces the home-directory prefix with ~ so folders print compactly.
 func shortDir(dir string) string {
@@ -204,4 +210,36 @@ func pct(n, total int) string {
 		return "0%"
 	}
 	return fmt.Sprintf("%d%%", n*100/total)
+}
+
+// humanCount abbreviates a count with a magnitude suffix — 1234 -> "1.23k",
+// 13524093 -> "13.52m", 1660000000000 -> "1.66t" — so the big token totals
+// read at a glance. Values under 1000 print as plain integers. Up to two
+// decimals, trailing zeros trimmed (1200 -> "1.2k", 100000000 -> "100m").
+func humanCount(n int) string {
+	abs := n
+	if abs < 0 {
+		abs = -abs
+	}
+	switch {
+	case abs >= 1e12:
+		return trimDecimals(float64(n)/1e12) + "t"
+	case abs >= 1e9:
+		return trimDecimals(float64(n)/1e9) + "b"
+	case abs >= 1e6:
+		return trimDecimals(float64(n)/1e6) + "m"
+	case abs >= 1e3:
+		return trimDecimals(float64(n)/1e3) + "k"
+	default:
+		return strconv.Itoa(n)
+	}
+}
+
+// trimDecimals formats f with up to two decimals, dropping trailing zeros and a
+// bare trailing dot (1.20 -> "1.2", 100.00 -> "100").
+func trimDecimals(f float64) string {
+	s := strconv.FormatFloat(f, 'f', 2, 64)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	return s
 }
