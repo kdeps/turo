@@ -11,6 +11,8 @@
 //	turo file.md                      same, from file
 //	turo -proxy                       reverse proxy that reduces LLM requests
 //	turo run <agent>                  launch an agent with requests reduced
+//	turo gain [--history] [--json]    report estimated tokens saved so far
+//	turo discover [--json]            estimate tokens turo could save on your Claude Code history
 //	turo --version                    print version
 //
 // Binary on PATH, detected by kdeps like RTK.
@@ -92,11 +94,10 @@ Flags:
 		return
 	}
 
-	// `turo gain [--history]`: report estimated tokens saved across recorded
-	// reductions.
+	// `turo gain [--history] [--json]`: report estimated tokens saved across
+	// recorded reductions.
 	if flag.Arg(0) == "gain" {
-		hist := flag.Arg(1) == "--history" || flag.Arg(1) == "-history"
-		showGain(hist)
+		showGain(hasSubFlag("history"), hasSubFlag("json"))
 		return
 	}
 
@@ -115,12 +116,12 @@ Flags:
 		os.Exit(1)
 	}
 
-	// `turo discover`: scan Claude Code history and estimate the tokens turo
-	// would have saved on sessions that ran without it.
+	// `turo discover [--json]`: scan Claude Code history and estimate the tokens
+	// turo would have saved on sessions that ran without it.
 	if flag.Arg(0) == "discover" {
 		showDiscover(proxyConfig{
 			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
-		})
+		}, hasSubFlag("json"))
 		return
 	}
 
@@ -256,6 +257,18 @@ func envOr(name, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// hasSubFlag reports whether a subcommand arg like --json or --history is present
+// among the args after the subcommand, accepting both -flag and --flag spellings
+// so `turo gain --json` and `turo discover -json` both work regardless of order.
+func hasSubFlag(name string) bool {
+	for _, a := range flag.Args()[1:] {
+		if a == "--"+name || a == "-"+name {
+			return true
+		}
+	}
+	return false
 }
 
 // envTrue reports whether an environment variable is set to a truthy value.

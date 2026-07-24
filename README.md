@@ -88,7 +88,9 @@ turo -gloss=false                 # skip the defining-word swap (less lossy)
 turo -arrows=false                # keep connective phrases verbatim (skip the -> swap)
 turo gain                         # estimated tokens saved so far
 turo gain --history               # per-reduction history, newest first
+turo gain --json                  # same totals as JSON for scripts/dashboards
 turo discover                     # tokens turo could save on your Claude Code history
+turo discover --json              # discover totals as JSON
 turo doctor                       # health check: version, settings, paths, agent wiring
 turo --version                    # print version
 ```
@@ -133,6 +135,16 @@ by folder:
 Each event also records the working folder it ran in, so `turo gain` breaks the
 savings down per project (busiest first) and `turo gain --history` shows the
 folder for each reduction.
+
+Add `--json` to either command for the same numbers in machine form — totals,
+raw (un-abbreviated) token counts, integer percentages, and the per-folder
+breakdown — so you can pipe savings into a dashboard, a CI check, or `jq`:
+
+```console
+$ turo gain --json | jq '.tokens_saved, .saved_pct'
+5530
+67
+```
 
 Counts are estimates from the built-in `cl100k`-style approximation, not a real
 tokenizer — treat them as a trend, not a bill.

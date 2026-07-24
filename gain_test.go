@@ -81,6 +81,50 @@ func TestHumanCount(t *testing.T) {
 	}
 }
 
+func TestPctInt(t *testing.T) {
+	cases := []struct {
+		n, total, want int
+	}{
+		{60, 100, 60},
+		{1, 3, 33},
+		{5, 0, 0}, // divide-by-zero guard
+	}
+	for _, c := range cases {
+		if got := pctInt(c.n, c.total); got != c.want {
+			t.Errorf("pctInt(%d,%d)=%d want %d", c.n, c.total, got, c.want)
+		}
+	}
+}
+
+// buildGainSummary aggregates totals, orders folders by tokens saved (busiest
+// project first), and — with history — lists events newest-first.
+func TestBuildGainSummary(t *testing.T) {
+	events := []gainEvent{
+		{T: 1, Cmd: "reduce", Before: 100, After: 40, Dir: "/a"}, // saved 60
+		{T: 2, Cmd: "proxy", Before: 200, After: 150, Dir: "/b"}, // saved 50
+		{T: 3, Cmd: "reduce", Before: 100, After: 60, Dir: "/a"}, // saved 40 -> /a total 100
+	}
+
+	s := buildGainSummary(events, false)
+	if s.Reductions != 3 || s.TokensIn != 400 || s.TokensOut != 250 || s.TokensSaved != 150 {
+		t.Fatalf("totals wrong: %+v", s)
+	}
+	if s.SavedPct != 37 { // 150/400
+		t.Errorf("SavedPct=%d want 37", s.SavedPct)
+	}
+	if len(s.ByFolder) != 2 || s.ByFolder[0].Dir != "/a" || s.ByFolder[0].TokensSaved != 100 {
+		t.Fatalf("by-folder order/values wrong: %+v", s.ByFolder)
+	}
+	if s.History != nil {
+		t.Errorf("history should be nil without the flag, got %v", s.History)
+	}
+
+	h := buildGainSummary(events, true)
+	if len(h.History) != 3 || h.History[0].T != 3 || h.History[2].T != 1 {
+		t.Fatalf("history should be newest-first: %+v", h.History)
+	}
+}
+
 // A malformed line in the log must be skipped without hiding valid records.
 func TestReadGainSkipsCorruptLines(t *testing.T) {
 	dir := t.TempDir()

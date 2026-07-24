@@ -92,10 +92,69 @@ func readGain() []gainEvent {
 	return events
 }
 
+// folderSummary is one folder's savings, flattened for JSON output.
+type folderSummary struct {
+	Dir         string `json:"dir"`
+	Reductions  int    `json:"reductions"`
+	TokensIn    int    `json:"tokens_in"`
+	TokensOut   int    `json:"tokens_out"`
+	TokensSaved int    `json:"tokens_saved"`
+	SavedPct    int    `json:"saved_pct"`
+}
+
+// gainSummary is the machine-readable form of `turo gain`, emitted by --json.
+type gainSummary struct {
+	Reductions  int             `json:"reductions"`
+	TokensIn    int             `json:"tokens_in"`
+	TokensOut   int             `json:"tokens_out"`
+	TokensSaved int             `json:"tokens_saved"`
+	SavedPct    int             `json:"saved_pct"`
+	ByFolder    []folderSummary `json:"by_folder,omitempty"`
+	History     []gainEvent     `json:"history,omitempty"` // newest first, only with --history
+}
+
+// buildGainSummary aggregates events into the struct both renderers share. With
+// history, it attaches every event newest-first so a script can slice its own
+// window; the text renderer caps what it prints separately.
+func buildGainSummary(events []gainEvent, history bool) gainSummary {
+	var before, after int
+	for _, e := range events {
+		before += e.Before
+		after += e.After
+	}
+	s := gainSummary{
+		Reductions:  len(events),
+		TokensIn:    before,
+		TokensOut:   after,
+		TokensSaved: before - after,
+		SavedPct:    pctInt(before-after, before),
+	}
+	order, stats := foldersBySaved(events)
+	for _, d := range order {
+		f := stats[d]
+		s.ByFolder = append(s.ByFolder, folderSummary{
+			Dir: shortDir(f.dir), Reductions: f.n,
+			TokensIn: f.before, TokensOut: f.after,
+			TokensSaved: f.before - f.after, SavedPct: pctInt(f.before-f.after, f.before),
+		})
+	}
+	if history {
+		for i := len(events) - 1; i >= 0; i-- {
+			s.History = append(s.History, events[i])
+		}
+	}
+	return s
+}
+
 // showGain prints aggregate token savings. With history, it also lists the most
-// recent reductions newest-first.
-func showGain(history bool) {
+// recent reductions newest-first. With asJSON, it emits the whole summary as
+// JSON instead of the human report.
+func showGain(history, asJSON bool) {
 	events := readGain()
+	if asJSON {
+		printJSON(buildGainSummary(events, history))
+		return
+	}
 	if len(events) == 0 {
 		fmt.Println("turo gain: no reductions recorded yet")
 		fmt.Println("run turo on some text (cat file | turo), or a proxy/agent session, then check back")
@@ -143,10 +202,10 @@ type folderStat struct {
 	before, after int
 }
 
-// showByFolder prints a per-folder savings breakdown, busiest folder first, so
-// you can see which projects turo is saving the most tokens in. Folders are
-// only shown when reductions came from more than one.
-func showByFolder(events []gainEvent) {
+// foldersBySaved groups events by working folder and returns the folder keys
+// ordered by tokens saved (descending), plus the per-folder stats. Shared by the
+// text breakdown and the JSON summary so both see the same grouping and order.
+func foldersBySaved(events []gainEvent) ([]string, map[string]*folderStat) {
 	order := []string{}
 	stats := map[string]*folderStat{}
 	for _, e := range events {
@@ -164,10 +223,18 @@ func showByFolder(events []gainEvent) {
 		s.before += e.Before
 		s.after += e.After
 	}
+	sortFoldersBySaved(order, stats)
+	return order, stats
+}
+
+// showByFolder prints a per-folder savings breakdown, busiest folder first, so
+// you can see which projects turo is saving the most tokens in. Folders are
+// only shown when reductions came from more than one.
+func showByFolder(events []gainEvent) {
+	order, stats := foldersBySaved(events)
 	if len(order) < 2 {
 		return
 	}
-	sortFoldersBySaved(order, stats)
 	fmt.Println("\nby folder:")
 	for _, d := range order {
 		s := stats[d]
@@ -206,10 +273,25 @@ func shortDir(dir string) string {
 
 // pct renders n/total as a percentage string, guarding against divide-by-zero.
 func pct(n, total int) string {
+	return fmt.Sprintf("%d%%", pctInt(n, total))
+}
+
+// pctInt is pct as a bare integer, for JSON output.
+func pctInt(n, total int) int {
 	if total <= 0 {
-		return "0%"
+		return 0
 	}
-	return fmt.Sprintf("%d%%", n*100/total)
+	return n * 100 / total
+}
+
+// printJSON marshals v as indented JSON to stdout. Best-effort like the rest of
+// analytics: a marshal error prints nothing rather than breaking the caller.
+func printJSON(v any) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return
+	}
+	fmt.Println(string(b))
 }
 
 // humanCount abbreviates a count with a magnitude suffix — 1234 -> "1.23k",

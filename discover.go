@@ -198,6 +198,57 @@ type sessionResult struct {
 	cwd, path           string
 }
 
+// projectSummary is one project's missed savings, flattened for JSON output.
+type projectSummary struct {
+	Dir        string `json:"dir"`
+	Messages   int    `json:"messages"`
+	TokensIn   int    `json:"tokens_in"`
+	WouldBeOut int    `json:"would_be_out"`
+	WouldSave  int    `json:"would_save"`
+	SavedPct   int    `json:"saved_pct"`
+}
+
+// discoverSummary is the machine-readable form of `turo discover`, emitted by
+// --json.
+type discoverSummary struct {
+	Sessions   int              `json:"sessions"`
+	Messages   int              `json:"messages"`
+	Roles      string           `json:"roles"`
+	TokensIn   int              `json:"tokens_in"`
+	WouldBeOut int              `json:"would_be_out"`
+	WouldSave  int              `json:"would_save"`
+	SavedPct   int              `json:"saved_pct"`
+	ByProject  []projectSummary `json:"by_project,omitempty"`
+}
+
+// aggregateDiscover folds per-file scan results into project totals, ordered by
+// tokens saved (descending). Pure over its input so it can be tested without
+// touching the filesystem. Files that reduced nothing (msgs == 0) drop out.
+func aggregateDiscover(results []sessionResult) (sessions int, order []string, stats map[string]*folderStat) {
+	stats = map[string]*folderStat{}
+	for _, r := range results {
+		if r.msgs == 0 {
+			continue
+		}
+		sessions++
+		cwd := r.cwd
+		if cwd == "" {
+			cwd = filepath.Base(filepath.Dir(r.path))
+		}
+		st, ok := stats[cwd]
+		if !ok {
+			st = &folderStat{dir: cwd}
+			stats[cwd] = st
+			order = append(order, cwd)
+		}
+		st.n += r.msgs
+		st.before += r.before
+		st.after += r.after
+	}
+	sortFoldersBySaved(order, stats)
+	return sessions, order, stats
+}
+
 // scanAll reduces every session file, spreading the work across CPU cores —
 // reduction is CPU-bound and each file is independent, so a whole history of
 // hundreds of sessions finishes in a fraction of the single-threaded time.
@@ -242,41 +293,47 @@ func isTerminalStderr() bool {
 }
 
 // showDiscover scans all Claude Code history and prints the estimated tokens
-// turo could have saved, broken down per project.
-func showDiscover(cfg proxyConfig) {
+// turo could have saved, broken down per project. With asJSON, it emits the
+// whole summary as JSON instead of the human report.
+func showDiscover(cfg proxyConfig, asJSON bool) {
 	dir := claudeProjectsDir()
 	files := findSessionLogs(dir)
 	if len(files) == 0 {
+		if asJSON {
+			printJSON(discoverSummary{Roles: rolesLabel(cfg.all)})
+			return
+		}
 		fmt.Printf("turo discover: no Claude Code history under %s\n", shortDir(dir))
 		fmt.Println("set CLAUDE_CONFIG_DIR if it lives elsewhere, or run some claude sessions first")
 		return
 	}
 
-	var before, after, msgs, sessions int
-	stats := map[string]*folderStat{}
-	order := []string{}
+	sessions, order, stats := aggregateDiscover(scanAll(files, cfg))
 
-	for _, r := range scanAll(files, cfg) {
-		if r.msgs == 0 {
-			continue
+	var before, after, msgs int
+	for _, d := range order {
+		s := stats[d]
+		before += s.before
+		after += s.after
+		msgs += s.n
+	}
+
+	if asJSON {
+		sum := discoverSummary{
+			Sessions: sessions, Messages: msgs, Roles: rolesLabel(cfg.all),
+			TokensIn: before, WouldBeOut: after, WouldSave: before - after,
+			SavedPct: pctInt(before-after, before),
 		}
-		sessions++
-		before += r.before
-		after += r.after
-		msgs += r.msgs
-		cwd := r.cwd
-		if cwd == "" {
-			cwd = filepath.Base(filepath.Dir(r.path))
+		for _, d := range order {
+			s := stats[d]
+			sum.ByProject = append(sum.ByProject, projectSummary{
+				Dir: shortDir(s.dir), Messages: s.n,
+				TokensIn: s.before, WouldBeOut: s.after,
+				WouldSave: s.before - s.after, SavedPct: pctInt(s.before-s.after, s.before),
+			})
 		}
-		st, ok := stats[cwd]
-		if !ok {
-			st = &folderStat{dir: cwd}
-			stats[cwd] = st
-			order = append(order, cwd)
-		}
-		st.n += r.msgs
-		st.before += r.before
-		st.after += r.after
+		printJSON(sum)
+		return
 	}
 
 	if msgs == 0 {
@@ -293,7 +350,6 @@ func showDiscover(cfg proxyConfig) {
 	fmt.Printf("  would save     %s (%s)\n", humanCount(saved), pct(saved, before))
 
 	if len(order) > 1 {
-		sortFoldersBySaved(order, stats)
 		fmt.Println("\nby project:")
 		for _, d := range order {
 			s := stats[d]

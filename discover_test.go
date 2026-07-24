@@ -136,3 +136,26 @@ func TestScanSessionSkipsJunk(t *testing.T) {
 		t.Fatalf("expected 1 message around the junk line, got %d", msgs)
 	}
 }
+
+// aggregateDiscover folds per-file results into project totals ordered by tokens
+// saved, dropping sessions that reduced nothing and falling back to the parent
+// folder name when a result carries no cwd.
+func TestAggregateDiscover(t *testing.T) {
+	results := []sessionResult{
+		{before: 100, after: 40, msgs: 2, cwd: "/a"},                 // saved 60
+		{before: 300, after: 150, msgs: 3, cwd: "/b"},                // saved 150 (busiest saver)
+		{before: 0, after: 0, msgs: 0, cwd: "/c"},                    // no reducible text: dropped
+		{before: 50, after: 20, msgs: 1, path: "/x/proj/sess.jsonl"}, // no cwd -> "proj"
+	}
+
+	sessions, order, stats := aggregateDiscover(results)
+	if sessions != 3 {
+		t.Fatalf("sessions=%d want 3 (empty one dropped)", sessions)
+	}
+	if len(order) != 3 || order[0] != "/b" {
+		t.Fatalf("order wrong (biggest saver first): %v", order)
+	}
+	if stats["proj"] == nil || stats["proj"].before != 50 {
+		t.Fatalf("cwd fallback to parent dir name failed: %+v", stats)
+	}
+}

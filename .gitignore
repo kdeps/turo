@@ -8,3 +8,4 @@
 # skills-lock.json is committed to pin the skill source + hash.
 /.agents/
 /.qwen/
+/.kdeps/
