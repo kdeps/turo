@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "turo": {
+      "source": "kdeps/turo",
+      "sourceType": "github",
+      "skillPath": "skills/turo/SKILL.md",
+      "computedHash": "92f7e84674916203261d18a86d768baa11be9435e988a790344eab35746eecc1"
+    }
+  }
+}
