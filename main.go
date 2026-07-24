@@ -43,7 +43,7 @@ func main() {
 		showVersion bool
 	)
 
-	flag.StringVar(&level, "level", resolveDefaultLevel(), "compression level: lite, full, ultra")
+	flag.StringVar(&level, "level", resolveDefaultLevel(), "compression level: lite, full, ultra, wenyan")
 	flag.IntVar(&maxDepth, "max-depth", 0, "max transitive edge depth (0=unlimited)")
 	flag.IntVar(&passes, "passes", 0, "max reduction passes; 0 = run until the output stops changing")
 	flag.BoolVar(&preamble, "preamble", false, "wrap output in a tagged block for system prompt injection")
