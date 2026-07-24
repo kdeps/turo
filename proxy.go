@@ -48,6 +48,7 @@ func proxyHandler(cfg proxyConfig) http.HandlerFunc {
 		if isChatPath(r.URL.Path) && len(body) > 0 {
 			if reduced, before, after := reducePayload(body, cfg); reduced != nil {
 				body = reduced
+				recordGain("proxy", before, after)
 				if cfg.verbose {
 					fmt.Fprintf(os.Stderr, "turo proxy: %s  %d -> %d tokens (est)\n", r.URL.Path, before, after)
 				}

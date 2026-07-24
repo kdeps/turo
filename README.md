@@ -86,6 +86,8 @@ turo -filler=false                # skip filler deletion
 turo -synonyms=false              # skip the synonym pass (keep words verbatim)
 turo -gloss=false                 # skip the defining-word swap (less lossy)
 turo -arrows=false                # keep connective phrases verbatim (skip the -> swap)
+turo gain                         # estimated tokens saved so far
+turo gain --history               # per-reduction history, newest first
 turo --version                    # print version
 ```
 
@@ -106,6 +108,32 @@ A cache miss leads to a slow query which produces a timeout
                      |  arrows (on by default)
 Cache miss -> slow query -> timeout
 ```
+
+## Savings — `turo gain`
+
+Every reduction (pipe mode, the proxy, and `turo run`) appends an estimated
+before/after token count to a JSONL log in your OS config dir
+(`~/Library/Application Support/turo/` on macOS, `~/.config/turo/` on Linux;
+override with `TURO_HOME`). `turo gain` totals it up; `turo gain --history` lists
+recent reductions newest-first.
+
+```text
+turo gain — 42 reductions
+  tokens in     8140
+  tokens out    2610
+  tokens saved  5530 (67%)
+
+by folder:
+  ~/Projects/turo        31 reductions  saved 4100 (69%)
+  ~/Projects/api          11 reductions  saved 1430 (61%)
+```
+
+Each event also records the working folder it ran in, so `turo gain` breaks the
+savings down per project (busiest first) and `turo gain --history` shows the
+folder for each reduction.
+
+Counts are estimates from the built-in `cl100k`-style approximation, not a real
+tokenizer — treat them as a trend, not a bill.
 
 ## Pipeline
 

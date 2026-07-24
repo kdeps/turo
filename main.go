@@ -50,6 +50,7 @@ Usage:
   turo -proxy [flags]         reverse proxy that reduces every LLM request
   turo run <agent> [flags]    launch a coding agent with requests reduced
   turo run                    list run targets and their flags
+  turo gain [--history]       report estimated tokens saved so far
   turo -install-agents        register the turo skill with coding agents
   turo -list-agents           list supported coding agents
 
@@ -86,6 +87,14 @@ Flags:
 	}
 	if *installAgentsFlag {
 		installAgents(installAll)
+		return
+	}
+
+	// `turo gain [--history]`: report estimated tokens saved across recorded
+	// reductions.
+	if flag.Arg(0) == "gain" {
+		hist := flag.Arg(1) == "--history" || flag.Arg(1) == "-history"
+		showGain(hist)
 		return
 	}
 
@@ -143,7 +152,9 @@ Flags:
 		os.Exit(1)
 	}
 
-	fmt.Print(reduce(input, level, passes, filler, synonyms, gloss, arrows))
+	out := reduce(input, level, passes, filler, synonyms, gloss, arrows)
+	recordGain("reduce", estimateTokens(input), estimateTokens(out))
+	fmt.Print(out)
 }
 
 // maxConvergePasses caps the "run until fixpoint" mode so a pathological

@@ -62,6 +62,7 @@ quick brown fox jumps lazy dog
 | `-passes N` | cap reduction passes (0 = run to convergence, the default) |
 | `-filler=false` / `-synonyms=false` / `-gloss=false` | skip a lossy stage |
 | `-install-agents` / `-list-agents` | register the skill with detected agents |
+| `gain` / `gain --history` | report estimated tokens saved across reductions |
 
 `TURO_LEVEL`, `TURO_FILLER`, `TURO_SYNONYMS`, `TURO_GLOSS` set the defaults.
 

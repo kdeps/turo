@@ -20,7 +20,10 @@ var (
 	reSpacePunct   = regexp.MustCompile(`\s+([,.;:!?])`)
 	reTripleBlank  = regexp.MustCompile(`\n{3,}`)
 	reSentenceHead = regexp.MustCompile(`(?:^|[.!?]\s+)([a-z])`)
-	reSentinel     = regexp.MustCompile(` (\d+) `)
+	// Sentinels wrap their index in NUL bytes, which never occur in prose, so a
+	// bare integer in the text (e.g. "keep 0 and 1") can never be mistaken for a
+	// restore marker.
+	reSentinel = regexp.MustCompile("\x00(\\d+)\x00")
 )
 
 // protectedPatterns are swapped out for numeric sentinels before filler
@@ -72,7 +75,7 @@ func shrinkProse(text string) string {
 		working = re.ReplaceAllStringFunc(working, func(m string) string {
 			i := len(segs)
 			segs = append(segs, m)
-			return " " + strconv.Itoa(i) + " "
+			return "\x00" + strconv.Itoa(i) + "\x00"
 		})
 	}
 
@@ -83,7 +86,7 @@ func shrinkProse(text string) string {
 			break
 		}
 		out = reSentinel.ReplaceAllStringFunc(out, func(m string) string {
-			i, err := strconv.Atoi(strings.TrimSpace(m))
+			i, err := strconv.Atoi(strings.Trim(m, "\x00"))
 			if err != nil || i < 0 || i >= len(segs) {
 				return m
 			}
