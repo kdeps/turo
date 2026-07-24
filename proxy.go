@@ -117,7 +117,7 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 	}
 	before, after := 0, 0
 	red := func(role, s string) string {
-		out := reduce(s, cfg.level, 0, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.arrows)
+		out := reduce(s, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.arrows)
 		before += estimateTokens(s)
 		after += estimateTokens(out)
 		if cfg.verbose {

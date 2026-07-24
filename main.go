@@ -9,7 +9,8 @@
 //
 //	cat CLAUDE.md | turo              reduce text to content words
 //	turo file.md                      same, from file
-//	turo --preamble                   wrap output for system prompt injection
+//	turo -proxy                       reverse proxy that reduces LLM requests
+//	turo run <agent>                  launch an agent with requests reduced
 //	turo --version                    print version
 //
 // Binary on PATH, detected by kdeps like RTK.
@@ -33,9 +34,7 @@ var version = "dev"
 func main() {
 	var (
 		level       string
-		maxDepth    int
 		passes      int
-		preamble    bool
 		synonyms    bool
 		filler      bool
 		gloss       bool
@@ -48,7 +47,6 @@ func main() {
 
 Usage:
   turo [flags] [file]         reduce a file (or stdin) to content words
-  turo --preamble [file]      reduce, wrapped for system-prompt injection
   turo -proxy [flags]         reverse proxy that reduces every LLM request
   turo run <agent> [flags]    launch a coding agent with requests reduced
   turo run                    list run targets and their flags
@@ -61,9 +59,7 @@ Flags:
 	}
 
 	flag.StringVar(&level, "level", resolveDefaultLevel(), "compression level: lite, full, ultra, wenyan")
-	flag.IntVar(&maxDepth, "max-depth", 0, "max transitive edge depth (0=unlimited)")
 	flag.IntVar(&passes, "passes", 0, "max reduction passes; 0 = run until the output stops changing")
-	flag.BoolVar(&preamble, "preamble", false, "wrap output in a tagged block for system prompt injection")
 	flag.BoolVar(&filler, "filler", envDefaultOn("TURO_FILLER"), "delete filler/pleasantry/hedge words first (on; disable with -filler=false or TURO_FILLER=off)")
 	flag.BoolVar(&synonyms, "synonyms", envDefaultOn("TURO_SYNONYMS"), "replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
 	flag.BoolVar(&gloss, "gloss", envDefaultOn("TURO_GLOSS"), "swap words for the shortest defining word in their dictionary definition (on; disable with -gloss=false or TURO_GLOSS=off)")
@@ -147,12 +143,7 @@ Flags:
 		os.Exit(1)
 	}
 
-	graph := reduce(input, level, maxDepth, passes, filler, synonyms, gloss, arrows)
-
-	if preamble {
-		graph = wrapPreamble(graph)
-	}
-	fmt.Print(graph)
+	fmt.Print(reduce(input, level, passes, filler, synonyms, gloss, arrows))
 }
 
 // maxConvergePasses caps the "run until fixpoint" mode so a pathological
@@ -164,7 +155,7 @@ const maxConvergePasses = 100
 // passes flatten structure left by earlier ones and dedupe across it, so large
 // structured docs keep shrinking for a pass or two before converging. passes>0
 // caps the number of iterations; passes<=0 runs to convergence (safety-capped).
-func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss, arrows bool) string {
+func reduce(text, level string, passes int, filler, synonyms, gloss, arrows bool) string {
 	// wenyan: reduce at ultra, then swap surviving English words for their
 	// 文言 character.
 	base, wenyan := wenyanBaseLevel(level)
@@ -194,7 +185,7 @@ func reduce(text, level string, maxDepth, passes int, filler, synonyms, gloss, a
 		if gloss {
 			step = applyGloss(step) // stage 3: shortest defining-word swap (opt-in)
 		}
-		step = parseToGraph(step, level, maxDepth) // stage 4: reduce to content words
+		step = parseToGraph(step, level) // stage 4: reduce to content words
 		if step == out {
 			break // fixpoint — further passes cannot help
 		}
@@ -225,21 +216,6 @@ func wenyanBaseLevel(level string) (base string, wenyan bool) {
 		return "ultra", true
 	}
 	return level, false
-}
-
-// wrapPreamble wraps reduced text in a tagged block that tells the LLM the
-// content is compressed, not prose. Injected verbatim into a system prompt.
-func wrapPreamble(graph string) string {
-	if strings.TrimSpace(graph) == "" {
-		return ""
-	}
-	graph = strings.TrimRight(graph, "\n")
-	return "<context-graph>\n" +
-		"# Compressed context: content words only. Articles, prepositions, filler, " +
-		"and repeated words are stripped; nouns, verbs, and adjectives are kept. " +
-		"Code, paths, and identifiers are verbatim.\n" +
-		graph + "\n" +
-		"</context-graph>\n"
 }
 
 // envOr returns the environment variable value, or fallback when unset/empty.
@@ -408,7 +384,7 @@ func readInput() (string, error) {
 // parseToGraph reduces text at the given compression level. It never returns
 // something larger than the input: if the reduced form does not save tokens
 // (estimated), the original text is passed through unchanged.
-func parseToGraph(text string, level string, _ int) string {
+func parseToGraph(text string, level string) string {
 	out := extractStructure(text, level)
 	if out == "" {
 		out = extractTermGraph(text, level)

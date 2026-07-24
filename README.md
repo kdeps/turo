@@ -81,7 +81,6 @@ Install turo once and any coding agent that can shell out to a binary — Claude
 ```bash
 cat CLAUDE.md | turo              # text -> deduped content words
 echo "fox jumps over dog" | turo  # pipe mode
-turo --preamble                   # wrap for system prompt injection
 turo -passes 1                    # single pass (default runs to convergence)
 turo -filler=false                # skip filler deletion
 turo -synonyms=false              # skip the synonym pass (keep words verbatim)
@@ -276,7 +275,7 @@ Under the hood each agent gets one of:
 Once turo is on PATH, any agent can also pipe context through it directly:
 
 ```bash
-cat CLAUDE.md | turo --preamble    # compact system prompt
+cat CLAUDE.md | turo               # compact system prompt
 cat error.log | turo               # reduce log output
 ```
 
