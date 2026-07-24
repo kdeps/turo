@@ -43,6 +43,23 @@ func main() {
 		showVersion bool
 	)
 
+	flag.Usage = func() {
+		_, _ = fmt.Fprint(flag.CommandLine.Output(), `turo — reduce text to fewer tokens.
+
+Usage:
+  turo [flags] [file]         reduce a file (or stdin) to content words
+  turo --preamble [file]      reduce, wrapped for system-prompt injection
+  turo -proxy [flags]         reverse proxy that reduces every LLM request
+  turo run <agent> [flags]    launch a coding agent with requests reduced
+  turo run                    list run targets and their flags
+  turo -install-agents        register the turo skill with coding agents
+  turo -list-agents           list supported coding agents
+
+Flags:
+`)
+		flag.PrintDefaults()
+	}
+
 	flag.StringVar(&level, "level", resolveDefaultLevel(), "compression level: lite, full, ultra, wenyan")
 	flag.IntVar(&maxDepth, "max-depth", 0, "max transitive edge depth (0=unlimited)")
 	flag.IntVar(&passes, "passes", 0, "max reduction passes; 0 = run until the output stops changing")
