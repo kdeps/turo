@@ -52,6 +52,7 @@ Usage:
   turo run                    list run targets and their flags
   turo gain [--history]       report estimated tokens saved so far
   turo discover               estimate tokens turo could save on your Claude Code history
+  turo doctor                 health check: version, settings, paths, agent wiring
   turo -install-agents        register the turo skill with coding agents
   turo -list-agents           list supported coding agents
 
@@ -96,6 +97,16 @@ Flags:
 	if flag.Arg(0) == "gain" {
 		hist := flag.Arg(1) == "--history" || flag.Arg(1) == "-history"
 		showGain(hist)
+		return
+	}
+
+	// `turo doctor`: health check — version, settings, paths, a reduction
+	// self-test, and agent wiring. Runs before the level guard so it can report
+	// an invalid level itself rather than exiting with the generic error.
+	if flag.Arg(0) == "doctor" {
+		showDoctor(proxyConfig{
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
+		})
 		return
 	}
 

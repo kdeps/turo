@@ -89,6 +89,7 @@ turo -arrows=false                # keep connective phrases verbatim (skip the -
 turo gain                         # estimated tokens saved so far
 turo gain --history               # per-reduction history, newest first
 turo discover                     # tokens turo could save on your Claude Code history
+turo doctor                       # health check: version, settings, paths, agent wiring
 turo --version                    # print version
 ```
 
@@ -162,6 +163,62 @@ It reads the per-project session logs under `~/.claude/projects` (set
 gating and compression flags (`-level`, `-filler`, `-gloss`, `-arrows`,
 `-proxy-all`) as the proxy — so the estimate reflects what `turo run claude`
 would actually do. Nothing is sent anywhere; the scan is local and read-only.
+
+## Health check — `turo doctor`
+
+`turo doctor` runs a local health check and exits non-zero if anything is
+broken — useful in CI, install scripts, or after an upgrade to confirm turo is
+wired up correctly.
+
+```text
+turo doctor
+
+turo
+  · version dev (unreleased build)
+  · binary /usr/local/bin/turo
+  ✓ default level ultra (all roles)
+
+environment
+  · no turo env overrides set (using defaults)
+
+gain log
+  ✓ writable: ~/Library/Application Support/turo/gain.jsonl (135 events)
+
+claude history (turo discover source)
+  ✓ 414 session logs in ~/.claude/projects
+
+pipeline self-test
+  ✓ 22 -> 5 tokens (77% smaller) at level ultra
+
+agents
+  ✓ Claude Code — detected, skill installed
+  ✓ opencode — detected, skill installed
+  · Gemini CLI — detected
+  · Cursor — detected
+  · Qwen Code — detected
+  · 5 of 18 supported agents detected (turo -list-agents shows all)
+
+turo is healthy
+```
+
+What it checks:
+
+| Section | What it verifies |
+|---------|-----------------|
+| **turo** | Version string, binary path, default level validity |
+| **environment** | Lists any `TURO_*` env overrides that are set |
+| **gain log** | Gain directory creatable, log file writable, event count |
+| **claude history** | Session logs found under `~/.claude/projects` |
+| **pipeline self-test** | Runs `reduce()` on a sample sentence, confirms token count decreased |
+| **agents** | Detects installed coding agents, checks skill installation for native agents |
+
+Pass `-level <name>` to test a specific level; an invalid level is reported as a
+problem (✗) rather than a hard exit, so the full report is still visible.
+
+```bash
+turo doctor               # healthy -> exit 0
+turo -level bogus doctor  # invalid level -> exit 1
+```
 
 ## Pipeline
 
