@@ -231,6 +231,8 @@ One command, no exports, no `/turo` inside the agent. Supported:
 
 ```bash
 turo -proxy -upstream https://api.openai.com   # listens on 127.0.0.1:8787
+turo -proxy -proxy-verbose                      # also echo each message's before -> after text
+turo -proxy -proxy-quiet                        # silence per-request output (banner + errors only)
 export OPENAI_BASE_URL=http://127.0.0.1:8787/v1
 ```
 
@@ -240,6 +242,12 @@ untouched. By default only `user` and `tool` content is reduced (system and
 assistant history are left verbatim, since they are lossier to touch) — pass
 `-proxy-all` to reduce every role. Auth headers pass through; non-chat paths are
 forwarded unchanged.
+
+By default the proxy prints one line per request with the estimated
+`before -> after` token count. Add `-proxy-verbose` to display the actual
+reduced output (each message's text before and after, truncated for the
+terminal), or `-proxy-quiet` to hide per-request output entirely. Both flags
+also apply to `turo run <agent>`.
 
 kdeps does not need this: in agent mode it already pipes the preamble, input,
 tool results, and history through turo before every call.

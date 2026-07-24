@@ -90,6 +90,36 @@ func TestProxyHandler_NonChatPassThrough(t *testing.T) {
 	}
 }
 
+func TestProxyPreview(t *testing.T) {
+	if got := proxyPreview("line one\n\tline two   line three"); got != "line one line two line three" {
+		t.Fatalf("newlines/tabs should collapse to single spaces, got %q", got)
+	}
+	long := strings.Repeat("a", proxyPreviewMax+50)
+	got := proxyPreview(long)
+	if !strings.HasSuffix(got, "...") || len([]rune(got)) != proxyPreviewMax+3 {
+		t.Fatalf("long preview should truncate to %d runes + ellipsis, got %d", proxyPreviewMax, len([]rune(got)))
+	}
+}
+
+// quiet suppresses per-request output but must not alter the reduction itself.
+func TestProxyHandler_QuietStillReduces(t *testing.T) {
+	var received string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		received = string(b)
+	}))
+	defer upstream.Close()
+
+	h := proxyHandler(proxyConfig{upstream: upstream.URL, level: "full", filler: true, quiet: true})
+	body := `{"messages":[{"role":"user","content":"Please utilize this approach."}]}`
+	w := httptest.NewRecorder()
+	h(w, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
+
+	if usr := msgContent(t, received, 0); strings.Contains(usr, "Please") {
+		t.Fatalf("quiet must not disable reduction, got %q", usr)
+	}
+}
+
 func TestShouldReduce(t *testing.T) {
 	cases := []struct {
 		role string

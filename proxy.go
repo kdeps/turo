@@ -21,6 +21,8 @@ type proxyConfig struct {
 	synonyms bool
 	gloss    bool
 	arrows   bool
+	verbose  bool // print each reduced message's before -> after text
+	quiet    bool // suppress all per-request output (banner + errors only)
 }
 
 // runProxy starts an OpenAI/Anthropic-compatible reverse proxy that runs each
@@ -28,8 +30,10 @@ type proxyConfig struct {
 // response is streamed back untouched. Point an agent at it with
 // OPENAI_BASE_URL / ANTHROPIC_BASE_URL.
 func runProxy(cfg proxyConfig) error {
-	fmt.Fprintf(os.Stderr, "turo proxy listening on %s -> %s (reducing %s)\n",
-		cfg.listen, cfg.upstream, rolesLabel(cfg.all))
+	if !cfg.quiet {
+		fmt.Fprintf(os.Stderr, "turo proxy listening on %s -> %s (reducing %s)\n",
+			cfg.listen, cfg.upstream, rolesLabel(cfg.all))
+	}
 	return http.ListenAndServe(cfg.listen, proxyHandler(cfg)) //nolint:gosec // local dev proxy
 }
 
@@ -45,7 +49,9 @@ func proxyHandler(cfg proxyConfig) http.HandlerFunc {
 		if isChatPath(r.URL.Path) && len(body) > 0 {
 			if reduced, before, after := reducePayload(body, cfg); reduced != nil {
 				body = reduced
-				fmt.Fprintf(os.Stderr, "turo proxy: %s  %d -> %d tokens (est)\n", r.URL.Path, before, after)
+				if !cfg.quiet {
+					fmt.Fprintf(os.Stderr, "turo proxy: %s  %d -> %d tokens (est)\n", r.URL.Path, before, after)
+				}
 			}
 		}
 
@@ -75,6 +81,20 @@ func proxyHandler(cfg proxyConfig) http.HandlerFunc {
 	}
 }
 
+// proxyPreviewMax bounds how much of a message is echoed in verbose mode so a
+// long prompt does not flood the terminal.
+const proxyPreviewMax = 300
+
+// proxyPreview renders a message for verbose logging: newlines collapsed to
+// spaces and truncated to proxyPreviewMax runes.
+func proxyPreview(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > proxyPreviewMax {
+		return string(r[:proxyPreviewMax]) + "..."
+	}
+	return s
+}
+
 func rolesLabel(all bool) string {
 	if all {
 		return "all roles"
@@ -97,17 +117,20 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 		return nil, 0, 0
 	}
 	before, after := 0, 0
-	red := func(s string) string {
+	red := func(role, s string) string {
 		out := reduce(s, cfg.level, 0, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.arrows)
 		before += estimateTokens(s)
 		after += estimateTokens(out)
+		if cfg.verbose && !cfg.quiet {
+			fmt.Fprintf(os.Stderr, "  [%s] %s\n       -> %s\n", role, proxyPreview(s), proxyPreview(out))
+		}
 		return out
 	}
 
 	// Anthropic top-level system prompt (only when reducing all roles).
 	if cfg.all {
 		if s, ok := payload["system"].(string); ok {
-			payload["system"] = red(s)
+			payload["system"] = red("system", s)
 		}
 	}
 
@@ -126,12 +149,12 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 		}
 		switch c := mm["content"].(type) {
 		case string:
-			mm["content"] = red(c)
+			mm["content"] = red(role, c)
 		case []any: // multimodal / Anthropic content blocks: reduce text parts
 			for _, part := range c {
 				if pm, ok := part.(map[string]any); ok {
 					if t, ok := pm["text"].(string); ok {
-						pm["text"] = red(t)
+						pm["text"] = red(role, t)
 					}
 				}
 			}

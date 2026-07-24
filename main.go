@@ -60,6 +60,8 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:8787", "with -proxy: address to listen on")
 	upstream := flag.String("upstream", envOr("OPENAI_BASE_URL", "https://api.openai.com"), "with -proxy: real LLM base URL")
 	proxyAll := flag.Bool("proxy-all", false, "with -proxy: reduce every role (system + assistant too), not just user + tool")
+	proxyVerbose := flag.Bool("proxy-verbose", false, "with -proxy/run: print each reduced message's before -> after text")
+	proxyQuiet := flag.Bool("proxy-quiet", false, "with -proxy/run: hide all per-request proxy output (banner + errors only)")
 	flag.Parse()
 
 	if showVersion {
@@ -99,6 +101,7 @@ func main() {
 		}
 		err := runAgent(flag.Arg(1), flag.Args()[2:], override, proxyConfig{
 			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
+			verbose: *proxyVerbose, quiet: *proxyQuiet,
 		})
 		// Print turo's own setup errors; an agent that exits non-zero already
 		// reported to its stderr.
@@ -113,6 +116,7 @@ func main() {
 		err := runProxy(proxyConfig{
 			listen: *listen, upstream: strings.TrimSuffix(*upstream, "/v1"),
 			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
+			verbose: *proxyVerbose, quiet: *proxyQuiet,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "turo proxy: %v\n", err)
