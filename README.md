@@ -76,6 +76,21 @@ Install turo once and any coding agent that can shell out to a binary — Claude
 | **Shell** | `curl -fsSL https://raw.githubusercontent.com/kdeps/turo/main/install.sh \| sh` |
 | **Manual** | Download from [releases](https://github.com/kdeps/turo/releases) |
 
+## Quick start
+
+```bash
+brew install kdeps/tap/turo   # or any method above
+turo run claude               # launch your agent with every request reduced —
+                              # base URL wired for you, 60-90% fewer input tokens
+turo doctor                   # verify the install + agent wiring
+turo gain                     # tokens saved so far
+```
+
+`turo run <agent>` is the everyday driver: it starts an in-process proxy, points
+the agent's base-URL env var at it, and reduces every request — no config, no API
+keys touched. Run `turo run` to list supported agents ([details below](#proxy--reduce-every-request-for-any-agent)).
+The flags below are for tuning or one-off pipe use.
+
 ## Usage
 
 ```bash
