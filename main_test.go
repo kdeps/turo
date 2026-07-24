@@ -307,6 +307,29 @@ func TestReducePreservesLiterals(t *testing.T) {
 	}
 }
 
+func TestReducePreservesFileNamesAndPaths(t *testing.T) {
+	// Ultra level with every transform on is the most aggressive path; file
+	// names, absolute/home paths, fenced + inline code, and CONST_CASE
+	// identifiers must all survive verbatim.
+	fence := "```go\nfor i := range xs { total += weights[i] }\n```"
+	in := "First open main.go and README.md, then read /Users/joel/Projects/turo/shrink.go " +
+		"and ~/.claude/CLAUDE.md while CLAUDE_CONFIG_DIR is set. Run `git status` before the block:\n" +
+		fence + "\nThat is the whole boring plan you should carefully follow."
+	got := reduce(in, "ultra", 0, true, true, true, true)
+	for _, lit := range []string{
+		"main.go", "README.md",
+		"/Users/joel/Projects/turo/shrink.go", "~/.claude/CLAUDE.md",
+		"CLAUDE_CONFIG_DIR", "`git status`", fence,
+	} {
+		if !strings.Contains(got, lit) {
+			t.Fatalf("literal %q not preserved verbatim in:\n%s", lit, got)
+		}
+	}
+	if estimateTokens(got) > estimateTokens(in) {
+		t.Fatalf("output larger than input: %d > %d", estimateTokens(got), estimateTokens(in))
+	}
+}
+
 func TestParseToGraph_UltraLemmaDedup(t *testing.T) {
 	// Every inflection of go/fox/run collapses to one token each.
 	got := parseToGraph("the fox goes and the fox went and foxes run while it ran", "ultra")
