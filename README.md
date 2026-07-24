@@ -86,7 +86,7 @@ turo -passes 1                    # single pass (default runs to convergence)
 turo -filler=false                # skip filler deletion
 turo -synonyms=false              # skip the synonym pass (keep words verbatim)
 turo -gloss=false                 # skip the defining-word swap (less lossy)
-turo -arrows                      # replace connective phrases with -> (opt-in)
+turo -arrows=false                # keep connective phrases verbatim (skip the -> swap)
 turo --version                    # print version
 ```
 
@@ -96,15 +96,15 @@ same-part-of-speech word from its own dictionary definition (`approach` ->
 disable it with `-gloss=false` / `TURO_GLOSS=off` when you need words closer to
 the original.
 
-`-arrows` (off by default) replaces multi-word causal/sequential connectives
+`-arrows` (on by default) replaces multi-word causal/sequential connectives
 (`leads to`, `results in`, `gives rise to`, `which produces`) with a single `->`
 token. Only multi-word phrases qualify, so the swap always saves at least one
 token; single-token connectives (`then`, `becomes`, `thus`) are left alone
-because `->` costs the same. Enable with `-arrows` / `TURO_ARROWS=on`.
+because `->` costs the same. Disable with `-arrows=false` / `TURO_ARROWS=off`.
 
 ```text
 A cache miss leads to a slow query which produces a timeout
-                     |  -arrows
+                     |  arrows (on by default)
 Cache miss -> slow query -> timeout
 ```
 
@@ -128,9 +128,9 @@ text -> [1] delete filler -> [2] swap cheaper synonyms -> [3] swap defining word
 4. **Reduction** drops the remaining stopwords, keeps content words by part of
    speech, deduplicates, and (ultra) collapses inflections by lemma.
 
-**Arrows** (opt-in, runs before reduction) rewrites multi-word connective
+**Arrows** (on by default, runs before reduction) rewrites multi-word connective
 phrases to `->`, which the reducer keeps verbatim between the surviving content
-words. Off by default; enable with `-arrows` / `TURO_ARROWS=on`.
+words. Disable with `-arrows=false` / `TURO_ARROWS=off`.
 
 The whole pipeline repeats until the output stops changing (`-passes 0`, the
 default; a positive `-passes N` caps the count). The first pass keeps document
@@ -230,9 +230,8 @@ One command, no exports, no `/turo` inside the agent. Supported:
 ### `turo -proxy` — the proxy on its own
 
 ```bash
-turo -proxy -upstream https://api.openai.com   # quiet by default, listens on 127.0.0.1:8787
-turo -proxy -proxy-verbose                      # echo each message's before -> after text
-turo -proxy -proxy-quiet=false                  # show the per-request token summary
+turo -proxy -upstream https://api.openai.com   # silent by default, listens on 127.0.0.1:8787
+turo -proxy -proxy-verbose                      # print activity: token summary + before -> after text
 turo -proxy -proxy-all=false                    # reduce only user + tool, not every role
 export OPENAI_BASE_URL=http://127.0.0.1:8787/v1
 ```
@@ -244,11 +243,10 @@ untouched. By default **every role** is reduced (`-proxy-all` is on); pass
 assistant history verbatim. Auth headers pass through; non-chat paths are
 forwarded unchanged.
 
-The proxy is **quiet by default** (`-proxy-quiet` is on): no per-request output.
-Pass `-proxy-quiet=false` to print the estimated `before -> after` token count
-per request, or `-proxy-verbose` to display the actual reduced output (each
-message's text before and after, truncated for the terminal); `-proxy-verbose`
-overrides quiet. Both flags also apply to `turo run <agent>`.
+The proxy is **silent by default**. Pass `-proxy-verbose` to print its activity:
+the estimated `before -> after` token count per request plus each message's text
+before and after (truncated for the terminal). The flag also applies to
+`turo run <agent>`.
 
 kdeps does not need this: in agent mode it already pipes the preamble, input,
 tool results, and history through turo before every call.

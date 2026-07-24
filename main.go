@@ -50,7 +50,7 @@ func main() {
 	flag.BoolVar(&filler, "filler", envDefaultOn("TURO_FILLER"), "delete filler/pleasantry/hedge words first (on; disable with -filler=false or TURO_FILLER=off)")
 	flag.BoolVar(&synonyms, "synonyms", envDefaultOn("TURO_SYNONYMS"), "replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
 	flag.BoolVar(&gloss, "gloss", envDefaultOn("TURO_GLOSS"), "swap words for the shortest defining word in their dictionary definition (on; disable with -gloss=false or TURO_GLOSS=off)")
-	flag.BoolVar(&arrows, "arrows", envTrue("TURO_ARROWS"), "replace multi-word causal/sequential connectives (leads to, results in, gives rise to) with -> (off; enable with -arrows or TURO_ARROWS=on)")
+	flag.BoolVar(&arrows, "arrows", envDefaultOn("TURO_ARROWS"), "replace multi-word causal/sequential connectives (leads to, results in, gives rise to) with -> (on; disable with -arrows=false or TURO_ARROWS=off)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	var installAll bool
 	installAgentsFlag := flag.Bool("install-agents", false, "register the turo skill with detected coding agents, then exit")
@@ -60,8 +60,7 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:8787", "with -proxy: address to listen on")
 	upstream := flag.String("upstream", envOr("OPENAI_BASE_URL", "https://api.openai.com"), "with -proxy: real LLM base URL")
 	proxyAll := flag.Bool("proxy-all", true, "with -proxy/run: reduce every role (default; -proxy-all=false for user + tool only)")
-	proxyVerbose := flag.Bool("proxy-verbose", false, "with -proxy/run: print each reduced message's before -> after text (overrides -proxy-quiet)")
-	proxyQuiet := flag.Bool("proxy-quiet", true, "with -proxy/run: hide per-request proxy output (default; -proxy-quiet=false to show the token summary)")
+	proxyVerbose := flag.Bool("proxy-verbose", false, "with -proxy/run: print proxy activity (token summary + each message's before -> after text); off = silent")
 	flag.Parse()
 
 	if showVersion {
@@ -101,7 +100,7 @@ func main() {
 		}
 		err := runAgent(flag.Arg(1), flag.Args()[2:], override, proxyConfig{
 			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
-			verbose: *proxyVerbose, quiet: *proxyQuiet,
+			verbose: *proxyVerbose,
 		})
 		// Print turo's own setup errors; an agent that exits non-zero already
 		// reported to its stderr.
@@ -116,7 +115,7 @@ func main() {
 		err := runProxy(proxyConfig{
 			listen: *listen, upstream: strings.TrimSuffix(*upstream, "/v1"),
 			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
-			verbose: *proxyVerbose, quiet: *proxyQuiet,
+			verbose: *proxyVerbose,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "turo proxy: %v\n", err)

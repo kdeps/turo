@@ -21,8 +21,7 @@ type proxyConfig struct {
 	synonyms bool
 	gloss    bool
 	arrows   bool
-	verbose  bool // print each reduced message's before -> after text
-	quiet    bool // suppress all per-request output (banner + errors only)
+	verbose  bool // print proxy activity (banner, token summary, before -> after text); off = silent
 }
 
 // runProxy starts an OpenAI/Anthropic-compatible reverse proxy that runs each
@@ -30,16 +29,12 @@ type proxyConfig struct {
 // response is streamed back untouched. Point an agent at it with
 // OPENAI_BASE_URL / ANTHROPIC_BASE_URL.
 func runProxy(cfg proxyConfig) error {
-	if proxyShowsOutput(cfg) {
+	if cfg.verbose {
 		fmt.Fprintf(os.Stderr, "turo proxy listening on %s -> %s (reducing %s)\n",
 			cfg.listen, cfg.upstream, rolesLabel(cfg.all))
 	}
 	return http.ListenAndServe(cfg.listen, proxyHandler(cfg)) //nolint:gosec // local dev proxy
 }
-
-// proxyShowsOutput reports whether the proxy should print per-request activity:
-// quiet is on by default, but -proxy-verbose overrides it.
-func proxyShowsOutput(cfg proxyConfig) bool { return cfg.verbose || !cfg.quiet }
 
 // proxyHandler builds the reverse-proxy HTTP handler for cfg.
 func proxyHandler(cfg proxyConfig) http.HandlerFunc {
@@ -53,7 +48,7 @@ func proxyHandler(cfg proxyConfig) http.HandlerFunc {
 		if isChatPath(r.URL.Path) && len(body) > 0 {
 			if reduced, before, after := reducePayload(body, cfg); reduced != nil {
 				body = reduced
-				if proxyShowsOutput(cfg) {
+				if cfg.verbose {
 					fmt.Fprintf(os.Stderr, "turo proxy: %s  %d -> %d tokens (est)\n", r.URL.Path, before, after)
 				}
 			}

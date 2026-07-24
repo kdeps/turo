@@ -101,8 +101,8 @@ func TestProxyPreview(t *testing.T) {
 	}
 }
 
-// quiet suppresses per-request output but must not alter the reduction itself.
-func TestProxyHandler_QuietStillReduces(t *testing.T) {
+// The default (verbose off) is silent but must still reduce the payload.
+func TestProxyHandler_SilentStillReduces(t *testing.T) {
 	var received string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -110,13 +110,13 @@ func TestProxyHandler_QuietStillReduces(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	h := proxyHandler(proxyConfig{upstream: upstream.URL, level: "full", filler: true, quiet: true})
+	h := proxyHandler(proxyConfig{upstream: upstream.URL, level: "full", filler: true}) // verbose: false
 	body := `{"messages":[{"role":"user","content":"Please utilize this approach."}]}`
 	w := httptest.NewRecorder()
 	h(w, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
 
 	if usr := msgContent(t, received, 0); strings.Contains(usr, "Please") {
-		t.Fatalf("quiet must not disable reduction, got %q", usr)
+		t.Fatalf("silent proxy must not disable reduction, got %q", usr)
 	}
 }
 

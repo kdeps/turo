@@ -68,7 +68,7 @@ func runAgent(agent string, args []string, upstreamOverride string, pcfg proxyCo
 	defer func() { _ = srv.Close() }()
 
 	baseURL := "http://" + ln.Addr().String() + t.suffix
-	if proxyShowsOutput(pcfg) {
+	if pcfg.verbose {
 		fmt.Fprintf(os.Stderr, "turo run: %s via proxy %s -> %s (reducing %s)\n",
 			agent, ln.Addr().String(), t.upstream, rolesLabel(pcfg.all))
 	}
@@ -96,8 +96,7 @@ func listRunTargets() {
 	fmt.Println("  -filler/-synonyms/-gloss=false  disable a reduction stage")
 	fmt.Println("  -arrows                         connective phrases -> \"->\"")
 	fmt.Println("  -proxy-all=false                reduce only user + tool (default: every role)")
-	fmt.Println("  -proxy-verbose                  echo each message's before -> after text")
-	fmt.Println("  -proxy-quiet=false              show the token summary (default: hidden)")
+	fmt.Println("  -proxy-verbose                  print proxy activity (default: silent)")
 	fmt.Println("  -upstream URL                   override the agent's upstream endpoint")
 	fmt.Println("\nExample: turo run -level ultra -proxy-verbose codex")
 }
