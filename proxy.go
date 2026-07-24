@@ -30,12 +30,16 @@ type proxyConfig struct {
 // response is streamed back untouched. Point an agent at it with
 // OPENAI_BASE_URL / ANTHROPIC_BASE_URL.
 func runProxy(cfg proxyConfig) error {
-	if !cfg.quiet {
+	if proxyShowsOutput(cfg) {
 		fmt.Fprintf(os.Stderr, "turo proxy listening on %s -> %s (reducing %s)\n",
 			cfg.listen, cfg.upstream, rolesLabel(cfg.all))
 	}
 	return http.ListenAndServe(cfg.listen, proxyHandler(cfg)) //nolint:gosec // local dev proxy
 }
+
+// proxyShowsOutput reports whether the proxy should print per-request activity:
+// quiet is on by default, but -proxy-verbose overrides it.
+func proxyShowsOutput(cfg proxyConfig) bool { return cfg.verbose || !cfg.quiet }
 
 // proxyHandler builds the reverse-proxy HTTP handler for cfg.
 func proxyHandler(cfg proxyConfig) http.HandlerFunc {
@@ -49,7 +53,7 @@ func proxyHandler(cfg proxyConfig) http.HandlerFunc {
 		if isChatPath(r.URL.Path) && len(body) > 0 {
 			if reduced, before, after := reducePayload(body, cfg); reduced != nil {
 				body = reduced
-				if !cfg.quiet {
+				if proxyShowsOutput(cfg) {
 					fmt.Fprintf(os.Stderr, "turo proxy: %s  %d -> %d tokens (est)\n", r.URL.Path, before, after)
 				}
 			}
@@ -121,7 +125,7 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 		out := reduce(s, cfg.level, 0, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.arrows)
 		before += estimateTokens(s)
 		after += estimateTokens(out)
-		if cfg.verbose && !cfg.quiet {
+		if cfg.verbose {
 			fmt.Fprintf(os.Stderr, "  [%s] %s\n       -> %s\n", role, proxyPreview(s), proxyPreview(out))
 		}
 		return out

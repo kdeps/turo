@@ -230,24 +230,25 @@ One command, no exports, no `/turo` inside the agent. Supported:
 ### `turo -proxy` — the proxy on its own
 
 ```bash
-turo -proxy -upstream https://api.openai.com   # listens on 127.0.0.1:8787
-turo -proxy -proxy-verbose                      # also echo each message's before -> after text
-turo -proxy -proxy-quiet                        # silence per-request output (banner + errors only)
+turo -proxy -upstream https://api.openai.com   # quiet by default, listens on 127.0.0.1:8787
+turo -proxy -proxy-verbose                      # echo each message's before -> after text
+turo -proxy -proxy-quiet=false                  # show the per-request token summary
+turo -proxy -proxy-all=false                    # reduce only user + tool, not every role
 export OPENAI_BASE_URL=http://127.0.0.1:8787/v1
 ```
 
 Every `/chat/completions` (and Anthropic `/messages`) request has its message
 content reduced before it reaches the real endpoint; the response streams back
-untouched. By default only `user` and `tool` content is reduced (system and
-assistant history are left verbatim, since they are lossier to touch) — pass
-`-proxy-all` to reduce every role. Auth headers pass through; non-chat paths are
+untouched. By default **every role** is reduced (`-proxy-all` is on); pass
+`-proxy-all=false` to reduce only `user` and `tool` content and leave system and
+assistant history verbatim. Auth headers pass through; non-chat paths are
 forwarded unchanged.
 
-By default the proxy prints one line per request with the estimated
-`before -> after` token count. Add `-proxy-verbose` to display the actual
-reduced output (each message's text before and after, truncated for the
-terminal), or `-proxy-quiet` to hide per-request output entirely. Both flags
-also apply to `turo run <agent>`.
+The proxy is **quiet by default** (`-proxy-quiet` is on): no per-request output.
+Pass `-proxy-quiet=false` to print the estimated `before -> after` token count
+per request, or `-proxy-verbose` to display the actual reduced output (each
+message's text before and after, truncated for the terminal); `-proxy-verbose`
+overrides quiet. Both flags also apply to `turo run <agent>`.
 
 kdeps does not need this: in agent mode it already pipes the preamble, input,
 tool results, and history through turo before every call.

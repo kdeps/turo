@@ -59,9 +59,9 @@ func main() {
 	proxyFlag := flag.Bool("proxy", false, "run an OpenAI/Anthropic-compatible reverse proxy that reduces requests")
 	listen := flag.String("listen", "127.0.0.1:8787", "with -proxy: address to listen on")
 	upstream := flag.String("upstream", envOr("OPENAI_BASE_URL", "https://api.openai.com"), "with -proxy: real LLM base URL")
-	proxyAll := flag.Bool("proxy-all", false, "with -proxy: reduce every role (system + assistant too), not just user + tool")
-	proxyVerbose := flag.Bool("proxy-verbose", false, "with -proxy/run: print each reduced message's before -> after text")
-	proxyQuiet := flag.Bool("proxy-quiet", false, "with -proxy/run: hide all per-request proxy output (banner + errors only)")
+	proxyAll := flag.Bool("proxy-all", true, "with -proxy/run: reduce every role (default; -proxy-all=false for user + tool only)")
+	proxyVerbose := flag.Bool("proxy-verbose", false, "with -proxy/run: print each reduced message's before -> after text (overrides -proxy-quiet)")
+	proxyQuiet := flag.Bool("proxy-quiet", true, "with -proxy/run: hide per-request proxy output (default; -proxy-quiet=false to show the token summary)")
 	flag.Parse()
 
 	if showVersion {
