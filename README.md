@@ -372,6 +372,7 @@ One command, no exports, no `/turo` inside the agent. Supported:
 turo -proxy -upstream https://api.openai.com   # silent by default, listens on 127.0.0.1:8787
 turo -proxy -proxy-verbose                      # print activity: token summary + before -> after text
 turo -proxy -proxy-all=false                    # reduce only user + tool, not every role
+turo -proxy -proxy-allowlist=false              # also reduce tool I/O + code/tables (kept verbatim by default)
 export OPENAI_BASE_URL=http://127.0.0.1:8787/v1
 ```
 
@@ -381,6 +382,13 @@ untouched. By default **every role** is reduced (`-proxy-all` is on); pass
 `-proxy-all=false` to reduce only `user` and `tool` content and leave system and
 assistant history verbatim. Auth headers pass through; non-chat paths are
 forwarded unchanged.
+
+`-proxy-allowlist` (on by default) keeps structured content out of the reducer:
+OpenAI `tool` messages, Anthropic `tool_use` args and `tool_result` output, and
+any string that reads as structured (code, tables, lists). Tool I/O — web
+results, file/code reads, TUI dumps — is lossier to squeeze and more likely to
+break an agent that parses it, so it streams through unreduced. Disable with
+`-proxy-allowlist=false` / `TURO_ALLOWLIST=off` to reduce those too.
 
 The proxy is **silent by default**. Pass `-proxy-verbose` to print its activity:
 the estimated `before -> after` token count per request plus each message's text

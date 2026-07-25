@@ -62,6 +62,63 @@ func protectLiterals(text string) (stripped string, literals []string) {
 	return work, literals
 }
 
+// reFenceBlock matches a whole fenced code block, used by isStructured.
+var reFenceBlock = regexp.MustCompile("(?s)```.*?```")
+
+// isStructured reports whether text is dominated by code fences, tables, or
+// list/heading markup — layout that prose reduction would scramble. The proxy
+// allowlist uses it to pass such content through verbatim; ordinary prose (even
+// with the odd bullet) still reduces.
+func isStructured(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	// Fenced code covering half or more of the text -> structured.
+	if fences := reFenceBlock.FindAllString(s, -1); fences != nil {
+		n := 0
+		for _, f := range fences {
+			n += len(f)
+		}
+		if n*2 >= len(s) {
+			return true
+		}
+	}
+	nonBlank, structural := 0, 0
+	for _, ln := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(ln)
+		if t == "" {
+			continue
+		}
+		nonBlank++
+		if isStructuralLine(ln, t) {
+			structural++
+		}
+	}
+	// Need a few lines, most of them structural, before skipping reduction.
+	return nonBlank >= 3 && structural*5 >= nonBlank*3 // >= 60%
+}
+
+// isStructuralLine reports whether a single line is markdown table/list/heading
+// markup or an indented code line. raw keeps leading whitespace; trimmed is
+// non-empty.
+func isStructuralLine(raw, trimmed string) bool {
+	switch trimmed[0] {
+	case '|', '#', '>': // table row, heading, blockquote
+		return true
+	case '-', '*', '+': // bullet: marker then space
+		return len(trimmed) > 1 && trimmed[1] == ' '
+	}
+	if strings.HasPrefix(raw, "\t") || strings.HasPrefix(raw, "    ") { // indented code
+		return true
+	}
+	i := 0 // numbered list: 1. / 12)
+	for i < len(trimmed) && trimmed[i] >= '0' && trimmed[i] <= '9' {
+		i++
+	}
+	return i > 0 && i < len(trimmed) && (trimmed[i] == '.' || trimmed[i] == ')')
+}
+
 // shrinkProse deletes filler/pleasantry/hedge/leader/article words while
 // protecting code, paths, URLs, and identifiers. It preserves readable prose;
 // the reduction stage that follows does the heavier keyword extraction.

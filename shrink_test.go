@@ -63,3 +63,28 @@ func TestReduceNeverLargerAndConverges(t *testing.T) {
 		}
 	}
 }
+
+func TestIsStructured(t *testing.T) {
+	structured := map[string]string{
+		"markdown table": "| Col A | Col B |\n|-------|-------|\n| one   | two   |\n| three | four  |",
+		"bullet list":    "Steps:\n- clone the repo\n- run make build\n- ship it\n- celebrate",
+		"numbered list":  "1. first\n2. second\n3. third\n4. fourth",
+		"fenced code":    "```go\nfor i := range xs {\n\ttotal += xs[i]\n}\n```",
+	}
+	for name, s := range structured {
+		if !isStructured(s) {
+			t.Errorf("%s: expected structured, got false for:\n%s", name, s)
+		}
+	}
+	prose := map[string]string{
+		"plain sentence": "Please utilize this approach to demonstrate the functionality clearly.",
+		"prose one bullet": "We should review the middleware today.\n- and also the expiry check\n" +
+			"then confirm the tests pass before we merge the pull request upstream.",
+		"two short lines": "first line here\nsecond line here",
+	}
+	for name, s := range prose {
+		if isStructured(s) {
+			t.Errorf("%s: expected prose (not structured), got true for:\n%s", name, s)
+		}
+	}
+}

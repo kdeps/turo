@@ -136,3 +136,66 @@ func TestShouldReduce(t *testing.T) {
 		}
 	}
 }
+
+func TestReducePayloadAllowlist(t *testing.T) {
+	prose := "Please utilize this approach to demonstrate the functionality."
+	table := "| A | B |\n|---|---|\n| one | two |\n| three | four |"
+	body := `{"model":"x","messages":[` +
+		`{"role":"user","content":"` + prose + `"},` +
+		`{"role":"user","content":` + jsonStr(table) + `},` +
+		`{"role":"tool","content":"` + prose + `"},` +
+		`{"role":"user","content":[` +
+		`{"type":"tool_result","content":[{"type":"text","text":"` + prose + `"}]},` +
+		`{"type":"text","text":"` + prose + `"}]}` +
+		`]}`
+
+	// allowlist ON: prose reduces; table, tool role, and tool_result pass through.
+	out, _, _ := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, allowlist: true})
+	msgs := payloadMsgs(t, out)
+	if s := msgs[0]["content"].(string); strings.Contains(s, "Please") {
+		t.Errorf("prose user msg should reduce, got %q", s)
+	}
+	if s := msgs[1]["content"].(string); s != table {
+		t.Errorf("markdown table should pass through, got %q", s)
+	}
+	if s := msgs[2]["content"].(string); s != prose {
+		t.Errorf("tool role should pass through, got %q", s)
+	}
+	blocks := msgs[3]["content"].([]any)
+	tr := blocks[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+	if tr != prose {
+		t.Errorf("tool_result text should pass through, got %q", tr)
+	}
+	if txt := blocks[1].(map[string]any)["text"].(string); strings.Contains(txt, "Please") {
+		t.Errorf("plain text block should reduce, got %q", txt)
+	}
+
+	// allowlist OFF: table and tool role now reduce too.
+	out2, _, _ := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, allowlist: false})
+	m2 := payloadMsgs(t, out2)
+	if s := m2[1]["content"].(string); s == table {
+		t.Errorf("with allowlist off, table should reduce, got verbatim %q", s)
+	}
+	if s := m2[2]["content"].(string); s == prose {
+		t.Errorf("with allowlist off, tool role should reduce, got verbatim %q", s)
+	}
+}
+
+func jsonStr(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+func payloadMsgs(t *testing.T, body []byte) []map[string]any {
+	t.Helper()
+	var p map[string]any
+	if err := json.Unmarshal(body, &p); err != nil {
+		t.Fatalf("payload not JSON: %v", err)
+	}
+	raw := p["messages"].([]any)
+	out := make([]map[string]any, len(raw))
+	for i, m := range raw {
+		out[i] = m.(map[string]any)
+	}
+	return out
+}

@@ -79,6 +79,7 @@ Flags:
 	upstream := flag.String("upstream", envOr("OPENAI_BASE_URL", "https://api.openai.com"), "with -proxy: real LLM base URL")
 	proxyAll := flag.Bool("proxy-all", true, "with -proxy/run: reduce every role (default; -proxy-all=false for user + tool only)")
 	proxyVerbose := flag.Bool("proxy-verbose", false, "with -proxy/run: print proxy activity (token summary + each message's before -> after text); off = silent")
+	proxyAllowlist := flag.Bool("proxy-allowlist", envDefaultOn("TURO_ALLOWLIST"), "with -proxy/run: pass structured content (tool calls, tool results, code/tables/lists) through unreduced (on; disable with -proxy-allowlist=false or TURO_ALLOWLIST=off)")
 	flag.Parse()
 
 	if showVersion {
@@ -106,7 +107,7 @@ Flags:
 	// an invalid level itself rather than exiting with the generic error.
 	if flag.Arg(0) == "doctor" {
 		showDoctor(proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows, allowlist: *proxyAllowlist,
 		})
 		return
 	}
@@ -120,7 +121,7 @@ Flags:
 	// turo would have saved on sessions that ran without it.
 	if flag.Arg(0) == "discover" {
 		showDiscover(proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows, allowlist: *proxyAllowlist,
 		}, hasSubFlag("json"))
 		return
 	}
@@ -143,7 +144,7 @@ Flags:
 			override = *upstream
 		}
 		err := runAgent(flag.Arg(1), flag.Args()[2:], override, proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows, allowlist: *proxyAllowlist,
 			verbose: *proxyVerbose,
 		})
 		// Print turo's own setup errors; an agent that exits non-zero already
@@ -158,7 +159,7 @@ Flags:
 	if *proxyFlag {
 		err := runProxy(proxyConfig{
 			listen: *listen, upstream: strings.TrimSuffix(*upstream, "/v1"),
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows, allowlist: *proxyAllowlist,
 			verbose: *proxyVerbose,
 		})
 		if err != nil {

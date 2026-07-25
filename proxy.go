@@ -13,15 +13,16 @@ import (
 
 // proxyConfig holds the reverse-proxy settings.
 type proxyConfig struct {
-	listen   string // host:port to listen on
-	upstream string // real LLM base URL (e.g. https://api.openai.com)
-	all      bool   // reduce every role, not just user + tool
-	level    string
-	filler   bool
-	synonyms bool
-	gloss    bool
-	arrows   bool
-	verbose  bool // print proxy activity (banner, token summary, before -> after text); off = silent
+	listen    string // host:port to listen on
+	upstream  string // real LLM base URL (e.g. https://api.openai.com)
+	all       bool   // reduce every role, not just user + tool
+	level     string
+	filler    bool
+	synonyms  bool
+	gloss     bool
+	arrows    bool
+	allowlist bool // pass structured content (tool I/O, code/tables/lists) through unreduced
+	verbose   bool // print proxy activity (banner, token summary, before -> after text); off = silent
 }
 
 // runProxy starts an OpenAI/Anthropic-compatible reverse proxy that runs each
@@ -147,16 +148,37 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 		if !shouldReduce(role, cfg.all) {
 			continue
 		}
+		// Allowlist: OpenAI tool messages are structured I/O — pass through.
+		if cfg.allowlist && role == "tool" {
+			continue
+		}
 		switch c := mm["content"].(type) {
 		case string:
+			if cfg.allowlist && isStructured(c) {
+				continue
+			}
 			mm["content"] = red(role, c)
 		case []any: // multimodal / Anthropic content blocks: reduce text parts
 			for _, part := range c {
-				if pm, ok := part.(map[string]any); ok {
-					if t, ok := pm["text"].(string); ok {
-						pm["text"] = red(role, t)
+				pm, ok := part.(map[string]any)
+				if !ok {
+					continue
+				}
+				// Skip structured tool blocks: tool_use args and tool_result
+				// output (web results, file/code reads, TUI dumps).
+				if cfg.allowlist {
+					if bt, _ := pm["type"].(string); bt == "tool_use" || bt == "tool_result" {
+						continue
 					}
 				}
+				t, ok := pm["text"].(string)
+				if !ok {
+					continue
+				}
+				if cfg.allowlist && isStructured(t) {
+					continue
+				}
+				pm["text"] = red(role, t)
 			}
 		}
 	}
