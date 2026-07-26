@@ -135,8 +135,11 @@ phrase — one gloss swap inside it (`disorder` -> something shorter) is enough 
 lose the match. Headwords `-defmatch` produces are then held back from the
 later swaps, which would otherwise walk the match straight back (`anarchy` ->
 `law`, inverting it). Between the two word-level swaps the ordering is close to a
-wash: gloss-first is one token cheaper across a full README, though the two
-disagree on about half the words either could touch.
+wash on any single document — gloss-first is one token cheaper across a full
+README — but a sweep of all 120 stage permutations over mixed corpora puts every
+gloss-before-synonyms order in the cheapest tier, three tokens ahead of the
+inverse. Arrow and filler placement is free; only the two phrase-then-word
+constraints (defmatch before gloss, gloss before synonyms) cost anything.
 
 `-arrows` (on by default) replaces multi-word causal/sequential connectives
 (`leads to`, `results in`, `gives rise to`, `which produces`) with a single `->`
