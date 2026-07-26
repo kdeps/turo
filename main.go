@@ -40,6 +40,7 @@ func main() {
 		synonyms    bool
 		filler      bool
 		gloss       bool
+		defmatch    bool
 		arrows      bool
 		showVersion bool
 	)
@@ -68,6 +69,7 @@ Flags:
 	flag.BoolVar(&filler, "filler", envDefaultOn("TURO_FILLER"), "delete filler/pleasantry/hedge words first (on; disable with -filler=false or TURO_FILLER=off)")
 	flag.BoolVar(&synonyms, "synonyms", envDefaultOn("TURO_SYNONYMS"), "replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
 	flag.BoolVar(&gloss, "gloss", envDefaultOn("TURO_GLOSS"), "swap words for the shortest defining word in their dictionary definition (on; disable with -gloss=false or TURO_GLOSS=off)")
+	flag.BoolVar(&defmatch, "defmatch", envDefaultOn("TURO_DEFMATCH"), "replace a definition-like phrase with the word it defines (a person who writes professionally -> author) (on; disable with -defmatch=false or TURO_DEFMATCH=off)")
 	flag.BoolVar(&arrows, "arrows", envDefaultOn("TURO_ARROWS"), "replace multi-word causal/sequential connectives (leads to, results in, gives rise to) with -> (on; disable with -arrows=false or TURO_ARROWS=off)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	var installAll bool
@@ -107,7 +109,7 @@ Flags:
 	// an invalid level itself rather than exiting with the generic error.
 	if flag.Arg(0) == "doctor" {
 		showDoctor(proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows, allowlist: *proxyAllowlist,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, allowlist: *proxyAllowlist,
 		})
 		return
 	}
@@ -121,7 +123,7 @@ Flags:
 	// turo would have saved on sessions that ran without it.
 	if flag.Arg(0) == "discover" {
 		showDiscover(proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows, allowlist: *proxyAllowlist,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, allowlist: *proxyAllowlist,
 		}, hasSubFlag("json"))
 		return
 	}
@@ -144,7 +146,7 @@ Flags:
 			override = *upstream
 		}
 		err := runAgent(flag.Arg(1), flag.Args()[2:], override, proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows, allowlist: *proxyAllowlist,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, allowlist: *proxyAllowlist,
 			verbose: *proxyVerbose,
 		})
 		// Print turo's own setup errors; an agent that exits non-zero already
@@ -159,7 +161,7 @@ Flags:
 	if *proxyFlag {
 		err := runProxy(proxyConfig{
 			listen: *listen, upstream: strings.TrimSuffix(*upstream, "/v1"),
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, arrows: arrows, allowlist: *proxyAllowlist,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, allowlist: *proxyAllowlist,
 			verbose: *proxyVerbose,
 		})
 		if err != nil {
@@ -175,7 +177,7 @@ Flags:
 		os.Exit(1)
 	}
 
-	out := reduce(input, level, passes, filler, synonyms, gloss, arrows)
+	out := reduce(input, level, passes, filler, synonyms, gloss, defmatch, arrows)
 	recordGain("reduce", estimateTokens(input), estimateTokens(out))
 	fmt.Print(out)
 }
@@ -189,7 +191,7 @@ const maxConvergePasses = 100
 // passes flatten structure left by earlier ones and dedupe across it, so large
 // structured docs keep shrinking for a pass or two before converging. passes>0
 // caps the number of iterations; passes<=0 runs to convergence (safety-capped).
-func reduce(text, level string, passes int, filler, synonyms, gloss, arrows bool) string {
+func reduce(text, level string, passes int, filler, synonyms, gloss, defmatch, arrows bool) string {
 	// wenyan: reduce at ultra, then swap surviving English words for their
 	// 文言 character.
 	base, wenyan := wenyanBaseLevel(level)
@@ -205,6 +207,9 @@ func reduce(text, level string, passes int, filler, synonyms, gloss, arrows bool
 		limit = maxConvergePasses
 	}
 	out := stripped
+	// Headwords defmatch produced, accumulated across passes so a later pass
+	// cannot blur what an earlier one resolved.
+	headwords := map[string]bool{}
 	for i := 0; i < limit; i++ {
 		step := out
 		if arrows {
@@ -213,13 +218,28 @@ func reduce(text, level string, passes int, filler, synonyms, gloss, arrows bool
 		if filler {
 			step = shrinkProse(step) // stage 1: delete filler/pleasantry/hedge words
 		}
-		if synonyms {
-			step = shortenSynonyms(step) // stage 2: token-cheaper synonym swap
+		if defmatch {
+			// stage 2: definition-like phrase -> the word it defines. Runs ahead
+			// of the word swaps for the same reason arrows does — it matches on
+			// whole phrases, and gloss rewriting one keyword ("disorder") is
+			// enough to lose the match ("state of disorder and lawlessness" ->
+			// anarchy). Filler deletion only drops hedges, so it stays first and
+			// tightens the window.
+			step = applyDefMatchInto(step, headwords)
 		}
 		if gloss {
-			step = applyGloss(step) // stage 3: shortest defining-word swap (opt-in)
+			// stage 3: shortest defining-word swap. Ahead of synonyms because the
+			// two disagree on ~half the words they both can touch, and letting
+			// gloss pick first lands one token cheaper across a full README.
+			// Headwords defmatch produced stay out of reach either way.
+			step = swapWordsExcept(step, definitionGloss, headwords)
 		}
-		step = parseToGraph(step, level) // stage 4: reduce to content words
+		if synonyms {
+			// stage 4: token-cheaper synonym swap, minus anything defmatch just
+			// produced — re-swapping a fresh headword only walks the match back.
+			step = swapWordsExcept(step, shorterSynonym, headwords)
+		}
+		step = parseToGraph(step, level) // stage 5: reduce to content words
 		if step == out {
 			break // fixpoint — further passes cannot help
 		}
@@ -363,6 +383,12 @@ func cleanupArrows(s string) string {
 // code symbols, whitespace) pass through so text structure is preserved for the
 // reduction stage that follows.
 func swapWords(text string, m map[string]string) string {
+	return swapWordsExcept(text, m, nil)
+}
+
+// swapWordsExcept is swapWords with a set of words (lowercased) it must leave
+// verbatim, used to protect headwords an earlier stage just produced.
+func swapWordsExcept(text string, m map[string]string, skip map[string]bool) string {
 	var b, word strings.Builder
 	flush := func() {
 		if word.Len() == 0 {
@@ -370,7 +396,7 @@ func swapWords(text string, m map[string]string) string {
 		}
 		w := word.String()
 		lw := strings.ToLower(w)
-		if s, ok := m[lw]; ok && sameClass(lw, s) {
+		if s, ok := m[lw]; ok && !skip[lw] && sameClass(lw, s) {
 			b.WriteString(s)
 		} else {
 			b.WriteString(w)

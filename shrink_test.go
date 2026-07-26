@@ -50,14 +50,14 @@ func TestReduceNeverLargerAndConverges(t *testing.T) {
 	}
 	for _, level := range []string{"lite", "full", "ultra"} {
 		for _, in := range inputs {
-			out := reduce(in, level, 0, true, true, true, true)
+			out := reduce(in, level, 0, true, true, true, false, true)
 			if estimateTokens(out) > estimateTokens(in) {
 				t.Errorf("level %s: output larger than input\n in:  %q (%d)\n out: %q (%d)",
 					level, in, estimateTokens(in), out, estimateTokens(out))
 			}
 			// Reducing the output again must not shrink it further — the first
 			// call already ran to convergence.
-			if again := reduce(out, level, 0, true, true, true, true); estimateTokens(again) > estimateTokens(out) {
+			if again := reduce(out, level, 0, true, true, true, false, true); estimateTokens(again) > estimateTokens(out) {
 				t.Errorf("level %s: second reduce grew output %q -> %q", level, out, again)
 			}
 		}

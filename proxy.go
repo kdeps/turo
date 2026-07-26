@@ -20,6 +20,7 @@ type proxyConfig struct {
 	filler    bool
 	synonyms  bool
 	gloss     bool
+	defmatch  bool
 	arrows    bool
 	allowlist bool // pass structured content (tool I/O, code/tables/lists) through unreduced
 	verbose   bool // print proxy activity (banner, token summary, before -> after text); off = silent
@@ -119,7 +120,7 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 	}
 	before, after := 0, 0
 	red := func(role, s string) string {
-		out := reduce(s, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.arrows)
+		out := reduce(s, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows)
 		before += estimateTokens(s)
 		after += estimateTokens(out)
 		if cfg.verbose {

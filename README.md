@@ -100,6 +100,7 @@ turo -passes 1                    # single pass (default runs to convergence)
 turo -filler=false                # skip filler deletion
 turo -synonyms=false              # skip the synonym pass (keep words verbatim)
 turo -gloss=false                 # skip the defining-word swap (less lossy)
+turo -defmatch=false              # keep definition-like phrases (skip the phrase -> headword swap)
 turo -arrows=false                # keep connective phrases verbatim (skip the -> swap)
 turo gain                         # estimated tokens saved so far
 turo gain --history               # per-reduction history, newest first
@@ -115,6 +116,27 @@ same-part-of-speech word from its own dictionary definition (`approach` ->
 `come`). Definitions are prose, not synonyms, so it is the lossiest stage —
 disable it with `-gloss=false` / `TURO_GLOSS=off` when you need words closer to
 the original.
+
+`-defmatch` (on by default) runs the gloss trade in reverse: where `-gloss`
+swaps a word for one of its defining words, `-defmatch` collapses a whole
+definition-like phrase into the word it defines (`the state of disorder and
+lawlessness` -> `anarchy`). It slides a 2–6 word window and replaces only when
+every keyword of a headword's definition is present, any surplus word is a bland
+carrier noun (`person`, `state`, `thing`), and the headword is strictly cheaper
+in tokens. Those gates are strict by design: on technical text it makes **zero**
+replacements — README output here is byte-identical with it on or off — for
+~315 KB of generated tables and ~2 ms per reduction. It earns its keep on
+natural prose. Disable with `-defmatch=false` / `TURO_DEFMATCH=off`.
+
+Stage order matters, and the pipeline runs phrase-level stages before word-level
+ones: arrows, then filler deletion, then `-defmatch`, then `-gloss`, then
+`-synonyms`, then the reduction to content words. A phrase matcher has to see the
+phrase — one gloss swap inside it (`disorder` -> something shorter) is enough to
+lose the match. Headwords `-defmatch` produces are then held back from the
+later swaps, which would otherwise walk the match straight back (`anarchy` ->
+`law`, inverting it). Between the two word-level swaps the ordering is close to a
+wash: gloss-first is one token cheaper across a full README, though the two
+disagree on about half the words either could touch.
 
 `-arrows` (on by default) replaces multi-word causal/sequential connectives
 (`leads to`, `results in`, `gives rise to`, `which produces`) with a single `->`
@@ -390,6 +412,20 @@ results, file/code reads, TUI dumps — is lossier to squeeze and more likely to
 break an agent that parses it, so it streams through unreduced. Disable with
 `-proxy-allowlist=false` / `TURO_ALLOWLIST=off` to reduce those too.
 
+Transient upstream failures (`502`, `503`, `504`, `529`) are retried by the proxy
+itself — up to 3 attempts, waiting for the upstream's `Retry-After` when it sends
+one and backing off exponentially (1s to 30s) when it does not.
+
+Rate limits (`429`) are **not** retried: they pass straight through with
+`Retry-After` intact. The agent runs its own limiter and retries the whole
+request regardless, so retrying inside the proxy just multiplies attempts
+(proxy attempts × agent attempts) against a limit that is already closed. For
+the same reason, a `Retry-After` longer than the 30s ceiling is handed back
+rather than clamped down to an early retry that is certain to fail again.
+
+Retries are logged to stderr even in silent mode; every other status, including
+`401`/`400`, passes straight through untouched.
+
 The proxy is **silent by default**. Pass `-proxy-verbose` to print its activity:
 the estimated `before -> after` token count per request plus each message's text
 before and after (truncated for the terminal). The flag also applies to
@@ -472,6 +508,12 @@ Use caveman when a human reads the result; use turo when only a model does.
 
 ## Why
 
-System prompts are 50-200k tokens. Most of those words carry grammar, not meaning. Turo points at what matters and drops the rest.
+Agent context — system prompt, `CLAUDE.md`, skills, tool schemas — runs tens of
+thousands of tokens before your first message, and it is resent every turn. Most
+of the prose in it carries grammar, not meaning. Turo points at what matters and
+drops the rest.
+
+Turo reduces the prose parts (instructions, skills, docs, logs). It does not
+touch tool-call JSON schemas — those have to parse.
 
 Point more. Token less.
