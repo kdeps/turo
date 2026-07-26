@@ -318,7 +318,7 @@ func shortenSynonyms(text string) string { return swapWords(text, shorterSynonym
 
 // applyGloss replaces each word with the shortest defining word from its own
 // dictionary definition. Very lossy — definitions are prose, not synonyms — so
-// it is opt-in via -gloss / TURO_GLOSS and off by default.
+// it is the lossiest stage; disable via -gloss=false / TURO_GLOSS=off.
 func applyGloss(text string) string { return swapWords(text, definitionGloss) }
 
 // arrowPhrases are multi-word causal/sequential/transformation connectives that

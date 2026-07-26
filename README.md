@@ -274,27 +274,33 @@ turo -level bogus doctor  # invalid level -> exit 1
 
 ## Pipeline
 
-Every run is four stages, each on by default:
+Every run is six stages, each on by default, phrase-level before word-level:
 
 ```text
-text -> [1] delete filler -> [2] swap cheaper synonyms -> [3] swap defining words -> [4] reduce to content words
+text -> [1] connectives to -> -> [2] delete filler -> [3] phrase to headword -> [4] swap defining words -> [5] swap cheaper synonyms -> [6] reduce to content words
 ```
 
-1. **Filler deletion** removes pleasantries, hedges, and leaders that survive
+1. **Arrows** rewrites multi-word causal/sequential connective phrases (`leads
+   to`, `results in`) to `->`, which the reducer keeps verbatim between the
+   surviving content words. Runs first, before word swaps can mangle the
+   phrase. Disable with `-arrows=false` / `TURO_ARROWS=off`.
+2. **Filler deletion** removes pleasantries, hedges, and leaders that survive
    word-level stopword lists (`please`, `I think`, `of course`, `let me`),
    while protecting code, paths, URLs, and identifiers verbatim. Disable with
    `-filler=false` / `TURO_FILLER=off`.
-2. **Synonym swap** replaces words with a fewer-token synonym (see below).
-   Disable with `-synonyms=false` / `TURO_SYNONYMS=off`.
-3. **Gloss swap** replaces words with the shortest defining word from their
+3. **Definition match** collapses a definition-like phrase into the word it
+   defines (`the state of disorder and lawlessness` -> `anarchy`). Disable with
+   `-defmatch=false` / `TURO_DEFMATCH=off`.
+4. **Gloss swap** replaces words with the shortest defining word from their
    dictionary definition — the lossiest stage. Disable with `-gloss=false` /
    `TURO_GLOSS=off`.
-4. **Reduction** drops the remaining stopwords, keeps content words by part of
+5. **Synonym swap** replaces words with a fewer-token synonym (see below).
+   Disable with `-synonyms=false` / `TURO_SYNONYMS=off`.
+6. **Reduction** drops the remaining stopwords, keeps content words by part of
    speech, deduplicates, and (ultra) collapses inflections by lemma.
 
-**Arrows** (on by default, runs before reduction) rewrites multi-word connective
-phrases to `->`, which the reducer keeps verbatim between the surviving content
-words. Disable with `-arrows=false` / `TURO_ARROWS=off`.
+Headwords stage 3 produces are held back from stages 4 and 5, which would
+otherwise swap the match straight back (`anarchy` -> `law`, inverting it).
 
 The whole pipeline repeats until the output stops changing (`-passes 0`, the
 default; a positive `-passes N` caps the count). The first pass keeps document
@@ -439,25 +445,31 @@ tool results, and history through turo before every call.
 
 ## Integration
 
-`npx turo` installs the binary **and** registers the turo skill + `/turo`
-command with every coding agent it finds on your machine — Claude Code, Gemini
-CLI, opencode, Codex, Cursor, Windsurf, Cline, Copilot, and 20+ more. Install
-once; every agent gets the same reducer.
+> ⚠️ **Name collision**: `turo` is also a car-sharing service and an unrelated
+> npm package — `npx turo` does **not** install this tool. Install the binary
+> from source or the tap, and confirm `which turo` points at the kdeps/turo
+> binary before wiring it into an agent.
 
 ```bash
-npx turo                 # binary + register with detected agents
-npx turo --list          # show every supported agent and its status
-npx turo --only claude   # register with one agent
-npx turo --all           # register with every supported agent
-npx turo --no-binary     # register agents only (binary already installed)
-npx turo --uninstall     # remove binary + registered skills
+brew install kdeps/tap/turo          # or: go install github.com/kdeps/turo@latest
+```
+
+The binary registers its own skill + `/turo` command with every coding agent it
+finds on your machine — Claude Code, Gemini CLI, opencode, Codex, Cursor,
+Windsurf, Cline, Copilot, and 20+ more. Install once; every agent gets the same
+reducer.
+
+```bash
+turo -install-agents           # register with detected agents
+turo -install-agents -all      # register with every supported agent, detected or not
+turo -list-agents              # show every supported agent and its status
 ```
 
 Under the hood each agent gets one of:
 
 - **Claude Code / opencode** — the skill and `/turo` command are copied into the agent's config dir
 - **Gemini CLI** — `gemini extensions install`
-- **everything else** — `npx skills add kdeps/turo --skill turo -a <profile>`
+- **everything else** — the skill file is written into the agent's own config dir
 
 Once turo is on PATH, any agent can also pipe context through it directly:
 
