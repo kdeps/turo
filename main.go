@@ -83,7 +83,7 @@ Flags:
 	upstream := flag.String("upstream", envOr("OPENAI_BASE_URL", "https://api.openai.com"), "with -proxy: real LLM base URL")
 	proxyAll := flag.Bool("proxy-all", true, "with -proxy/run: reduce every role (default; -proxy-all=false for user + tool only)")
 	proxyVerbose := flag.Bool("proxy-verbose", false, "with -proxy/run: print proxy activity (token summary + each message's before -> after text); off = silent")
-	proxyAllowlist := flag.Bool("proxy-allowlist", envDefaultOn("TURO_ALLOWLIST"), "with -proxy/run: pass structured content (tool calls, tool results, code/tables/lists) through unreduced (on; disable with -proxy-allowlist=false or TURO_ALLOWLIST=off)")
+	proxyAllowlist := flag.Bool("proxy-allowlist", envDefaultOff("TURO_ALLOWLIST"), "with -proxy/run: pass structured content (tool calls, tool results, code/tables/lists) through unreduced (off; enable with -proxy-allowlist or TURO_ALLOWLIST=on)")
 	flag.Parse()
 
 	if showVersion {
@@ -329,6 +329,16 @@ func envDefaultOn(name string) bool {
 		return false
 	}
 	return true
+}
+
+// envDefaultOff returns the default for an off-by-default flag: false unless the
+// named environment variable is set to a truthy value.
+func envDefaultOff(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // shortenSynonyms replaces each word with a token-cheaper synonym from the
