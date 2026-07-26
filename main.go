@@ -42,6 +42,7 @@ func main() {
 		gloss       bool
 		defmatch    bool
 		arrows      bool
+		markdown    bool
 		showVersion bool
 	)
 
@@ -71,6 +72,7 @@ Flags:
 	flag.BoolVar(&gloss, "gloss", envDefaultOn("TURO_GLOSS"), "swap words for the shortest defining word in their dictionary definition (on; disable with -gloss=false or TURO_GLOSS=off)")
 	flag.BoolVar(&defmatch, "defmatch", envDefaultOn("TURO_DEFMATCH"), "replace a definition-like phrase with the word it defines (a person who writes professionally -> author) (on; disable with -defmatch=false or TURO_DEFMATCH=off)")
 	flag.BoolVar(&arrows, "arrows", envDefaultOn("TURO_ARROWS"), "replace multi-word causal/sequential connectives (leads to, results in, gives rise to) with -> (on; disable with -arrows=false or TURO_ARROWS=off)")
+	flag.BoolVar(&markdown, "markdown", envDefaultOn("TURO_MARKDOWN"), "keep markdown/HTML structure (headings, lists, tables, fences, tags) and reduce only the prose inside it (on; disable with -markdown=false or TURO_MARKDOWN=off)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	var installAll bool
 	installAgentsFlag := flag.Bool("install-agents", false, "register the turo skill with detected coding agents, then exit")
@@ -109,7 +111,7 @@ Flags:
 	// an invalid level itself rather than exiting with the generic error.
 	if flag.Arg(0) == "doctor" {
 		showDoctor(proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, allowlist: *proxyAllowlist,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, markdown: markdown, allowlist: *proxyAllowlist,
 		})
 		return
 	}
@@ -123,7 +125,7 @@ Flags:
 	// turo would have saved on sessions that ran without it.
 	if flag.Arg(0) == "discover" {
 		showDiscover(proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, allowlist: *proxyAllowlist,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, markdown: markdown, allowlist: *proxyAllowlist,
 		}, hasSubFlag("json"))
 		return
 	}
@@ -146,7 +148,7 @@ Flags:
 			override = *upstream
 		}
 		err := runAgent(flag.Arg(1), flag.Args()[2:], override, proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, allowlist: *proxyAllowlist,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, markdown: markdown, allowlist: *proxyAllowlist,
 			verbose: *proxyVerbose,
 		})
 		// Print turo's own setup errors; an agent that exits non-zero already
@@ -161,7 +163,7 @@ Flags:
 	if *proxyFlag {
 		err := runProxy(proxyConfig{
 			listen: *listen, upstream: strings.TrimSuffix(*upstream, "/v1"),
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, allowlist: *proxyAllowlist,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, markdown: markdown, allowlist: *proxyAllowlist,
 			verbose: *proxyVerbose,
 		})
 		if err != nil {
@@ -177,7 +179,7 @@ Flags:
 		os.Exit(1)
 	}
 
-	out := reduce(input, level, passes, filler, synonyms, gloss, defmatch, arrows)
+	out := reduce(input, level, passes, filler, synonyms, gloss, defmatch, arrows, markdown)
 	recordGain("reduce", estimateTokens(input), estimateTokens(out))
 	fmt.Print(out)
 }
@@ -186,23 +188,48 @@ Flags:
 // synonym cycle can never loop forever.
 const maxConvergePasses = 100
 
-// reduce runs the three-stage pipeline (filler -> synonyms -> reduce)
+// reduce runs the reduction pipeline over text. When markdown is on and the
+// input looks like markup, it walks the document block by block so headings,
+// lists, tables, fences, and HTML survive; otherwise the whole input is treated
+// as flat prose.
+func reduce(text, level string, passes int, filler, synonyms, gloss, defmatch, arrows, markdown bool) string {
+	opts := reduceOpts{
+		level: level, passes: passes, filler: filler, synonyms: synonyms,
+		gloss: gloss, defmatch: defmatch, arrows: arrows,
+	}
+	if markdown && looksLikeMarkup(text) {
+		return reduceMarkup(text, opts)
+	}
+	return reduceFlat(text, opts, protectedPatterns)
+}
+
+// reduceOpts carries the per-stage switches through the block walker so the
+// markup path and the flat path stay in step.
+type reduceOpts struct {
+	level                                     string
+	passes                                    int
+	filler, synonyms, gloss, defmatch, arrows bool
+}
+
+// reduceFlat runs the three-stage pipeline (filler -> synonyms -> reduce)
 // repeatedly, stopping as soon as a pass no longer changes the output. Later
 // passes flatten structure left by earlier ones and dedupe across it, so large
 // structured docs keep shrinking for a pass or two before converging. passes>0
 // caps the number of iterations; passes<=0 runs to convergence (safety-capped).
-func reduce(text, level string, passes int, filler, synonyms, gloss, defmatch, arrows bool) string {
+// patterns is the literal-protection set; callers protecting extra shapes (HTML
+// tags) pass an extended list.
+func reduceFlat(text string, o reduceOpts, patterns []*regexp.Regexp) string {
 	// wenyan: reduce at ultra, then swap surviving English words for their
 	// 文言 character.
-	base, wenyan := wenyanBaseLevel(level)
-	level = base
+	base, wenyan := wenyanBaseLevel(o.level)
+	level := base
 
 	// Pull URLs, code, paths, and identifiers out before reducing — the
-	// pipeline shreds anything with non-letter characters — then re-append them
-	// verbatim so they survive intact.
-	stripped, literals := protectLiterals(text)
+	// pipeline shreds anything with non-letter characters — leaving numeric
+	// sentinels that ride through and are swapped back in place afterwards.
+	stripped, literals := protectWith(text, patterns)
 
-	limit := passes
+	limit := o.passes
 	if limit <= 0 {
 		limit = maxConvergePasses
 	}
@@ -212,13 +239,13 @@ func reduce(text, level string, passes int, filler, synonyms, gloss, defmatch, a
 	headwords := map[string]bool{}
 	for i := 0; i < limit; i++ {
 		step := out
-		if arrows {
+		if o.arrows {
 			step = applyArrows(step) // stage 0: connective phrase -> "->" (before word swaps mangle it)
 		}
-		if filler {
+		if o.filler {
 			step = shrinkProse(step) // stage 1: delete filler/pleasantry/hedge words
 		}
-		if defmatch {
+		if o.defmatch {
 			// stage 2: definition-like phrase -> the word it defines. Runs ahead
 			// of the word swaps for the same reason arrows does — it matches on
 			// whole phrases, and gloss rewriting one keyword ("disorder") is
@@ -227,14 +254,14 @@ func reduce(text, level string, passes int, filler, synonyms, gloss, defmatch, a
 			// tightens the window.
 			step = applyDefMatchInto(step, headwords)
 		}
-		if gloss {
+		if o.gloss {
 			// stage 3: shortest defining-word swap. Ahead of synonyms because the
 			// two disagree on ~half the words they both can touch, and letting
 			// gloss pick first lands one token cheaper across a full README.
 			// Headwords defmatch produced stay out of reach either way.
 			step = swapWordsExcept(step, definitionGloss, headwords)
 		}
-		if synonyms {
+		if o.synonyms {
 			// stage 4: token-cheaper synonym swap, minus anything defmatch just
 			// produced — re-swapping a fresh headword only walks the match back.
 			step = swapWordsExcept(step, shorterSynonym, headwords)
@@ -246,21 +273,14 @@ func reduce(text, level string, passes int, filler, synonyms, gloss, defmatch, a
 		out = step
 	}
 
-	if arrows {
+	if o.arrows {
 		out = cleanupArrows(out) // collapse dangling/repeated arrows left by dedup
 	}
 	if wenyan {
 		out = applyWenyan(out) // swap reduced English words for 文言 chars
 	}
 
-	if len(literals) == 0 {
-		return out
-	}
-	lits := strings.Join(literals, " ")
-	if strings.TrimSpace(out) == "" {
-		return lits
-	}
-	return strings.TrimRight(out, "\n ") + " " + lits
+	return restoreLiterals(out, literals)
 }
 
 // wenyanBaseLevel maps a wenyan level to its base reduction level and reports
@@ -876,6 +896,10 @@ func extractTermGraph(text string, level string) string {
 	for _, w := range fields {
 		if w == "->" { // arrow connective (from applyArrows): keep verbatim, never dedup
 			out = append(out, "->")
+			continue
+		}
+		if hasSentinel(w) { // protected literal: keep verbatim, never dedup or lemmatize
+			out = append(out, w)
 			continue
 		}
 		lower := strings.ToLower(strings.Trim(w, ",;:.!?\"'()[]{}\\`*~|<>—–-"))

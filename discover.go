@@ -182,7 +182,7 @@ func scanSession(path string, cfg proxyConfig) (before, after, msgs int, cwd str
 			if !shouldReduce(p.role, cfg.all) {
 				continue
 			}
-			red := reduce(p.text, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows)
+			red := reduce(p.text, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows, cfg.markdown)
 			before += estimateTokens(p.text)
 			after += estimateTokens(red)
 			msgs++

@@ -22,6 +22,7 @@ type proxyConfig struct {
 	gloss     bool
 	defmatch  bool
 	arrows    bool
+	markdown  bool // keep markdown/HTML structure and reduce only the prose inside it
 	allowlist bool // pass structured content (tool I/O, code/tables/lists) through unreduced
 	verbose   bool // print proxy activity (banner, token summary, before -> after text); off = silent
 }
@@ -120,7 +121,7 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 	}
 	before, after := 0, 0
 	red := func(role, s string) string {
-		out := reduce(s, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows)
+		out := reduce(s, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows, cfg.markdown)
 		before += estimateTokens(s)
 		after += estimateTokens(out)
 		if cfg.verbose {

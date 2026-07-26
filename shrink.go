@@ -42,25 +42,92 @@ var protectedPatterns = []*regexp.Regexp{
 
 const maxRestorePasses = 8
 
-// protectLiterals removes every protected segment (code, inline code, URLs,
-// paths, CONST_CASE, dotted.calls, version numbers) from the text and returns
-// the stripped prose plus the collected literals in first-seen order. The
-// reduction pipeline mangles anything with non-letter characters, so these are
-// pulled out, the prose is reduced, and the literals are re-appended verbatim.
+// protectLiterals replaces every protected segment (code, inline code, URLs,
+// paths, CONST_CASE, dotted.calls, version numbers) with a numeric sentinel and
+// returns the sentinel-bearing text plus the literals those sentinels stand
+// for, indexed by sentinel number. The reduction pipeline mangles anything with
+// non-letter characters, so literals ride through as sentinels and
+// restoreLiterals puts them back exactly where they were.
 func protectLiterals(text string) (stripped string, literals []string) {
-	seen := map[string]bool{}
+	return protectWith(text, protectedPatterns)
+}
+
+// protectWith is protectLiterals over an explicit pattern list, so callers that
+// protect extra shapes (HTML tags, say) can extend the set without disturbing
+// the global one. Repeat occurrences of the same literal share one sentinel
+// number, so every occurrence is restored in its own place.
+func protectWith(text string, patterns []*regexp.Regexp) (stripped string, literals []string) {
+	index := map[string]int{}
 	work := text
-	for _, re := range protectedPatterns {
+	for _, re := range patterns {
 		work = re.ReplaceAllStringFunc(work, func(m string) string {
-			if !seen[m] {
-				seen[m] = true
+			i, ok := index[m]
+			if !ok {
+				i = len(literals)
+				index[m] = i
 				literals = append(literals, m)
 			}
-			return " "
+			return sentinelFor(i)
 		})
 	}
 	return work, literals
 }
+
+// sentinelFor renders the placeholder for literal i. NUL bytes never occur in
+// prose, so the marker can never collide with a bare integer in the text.
+func sentinelFor(i int) string { return "\x00" + strconv.Itoa(i) + "\x00" }
+
+// restoreLiterals puts protected literals back where their sentinels sit. A
+// literal whose sentinel did not survive reduction is appended at the end, in
+// original order, so nothing is silently dropped; a final sweep guarantees no
+// NUL byte ever reaches stdout.
+func restoreLiterals(out string, literals []string) string {
+	if len(literals) == 0 {
+		return stripNUL(out)
+	}
+	restored := make([]bool, len(literals))
+	for pass := 0; pass < maxRestorePasses; pass++ {
+		if !reSentinel.MatchString(out) {
+			break
+		}
+		out = reSentinel.ReplaceAllStringFunc(out, func(m string) string {
+			i, err := strconv.Atoi(strings.Trim(m, "\x00"))
+			if err != nil || i < 0 || i >= len(literals) {
+				return "" // unknown marker: drop it rather than leak a NUL
+			}
+			restored[i] = true
+			return literals[i]
+		})
+	}
+	out = stripNUL(out)
+
+	var missing []string
+	for i, lit := range literals {
+		if !restored[i] {
+			missing = append(missing, lit)
+		}
+	}
+	if len(missing) == 0 {
+		return out
+	}
+	tail := strings.Join(missing, " ")
+	if strings.TrimSpace(out) == "" {
+		return tail
+	}
+	return strings.TrimRight(out, "\n ") + " " + tail
+}
+
+// stripNUL removes any stray NUL byte left by a mangled sentinel.
+func stripNUL(s string) string {
+	if !strings.ContainsRune(s, 0) {
+		return s
+	}
+	return strings.ReplaceAll(s, "\x00", "")
+}
+
+// hasSentinel reports whether a token carries a protected literal, so the
+// reduction stages can pass it through untouched.
+func hasSentinel(s string) bool { return strings.ContainsRune(s, 0) }
 
 // reFenceBlock matches a whole fenced code block, used by isStructured.
 var reFenceBlock = regexp.MustCompile("(?s)```.*?```")
@@ -126,18 +193,15 @@ func shrinkProse(text string) string {
 	if text == "" {
 		return text
 	}
-	var segs []string
-	working := text
-	for _, re := range protectedPatterns {
-		working = re.ReplaceAllStringFunc(working, func(m string) string {
-			i := len(segs)
-			segs = append(segs, m)
-			return "\x00" + strconv.Itoa(i) + "\x00"
-		})
-	}
+	working, segs := protectWith(text, protectedPatterns)
 
 	out := compressProse(working)
 
+	// When segs is empty the only sentinels present came from an outer
+	// protectLiterals; leave them for that caller to restore.
+	if len(segs) == 0 {
+		return out
+	}
 	for pass := 0; pass < maxRestorePasses; pass++ {
 		if !reSentinel.MatchString(out) {
 			break

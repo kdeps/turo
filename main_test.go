@@ -189,20 +189,20 @@ func TestReduceMultiPass(t *testing.T) {
 	// Structured text repeats words across sections; a second pass flattens
 	// and dedupes, so more passes never yield a larger result.
 	txt := "# Server\nthe server handles the request quickly\n# Client\nthe client sends the request to the server\n"
-	one := estimateTokens(reduce(txt, "full", 1, true, true, false, false, false))
-	four := estimateTokens(reduce(txt, "full", 4, true, true, false, false, false))
+	one := estimateTokens(reduce(txt, "full", 1, true, true, false, false, false, false))
+	four := estimateTokens(reduce(txt, "full", 4, true, true, false, false, false, false))
 	if four > one {
 		t.Fatalf("multi-pass larger than single: 1=%d 4=%d", one, four)
 	}
 
 	// passes <= 0 runs to convergence; the result must be a fixpoint.
-	conv := reduce(txt, "ultra", 0, true, true, false, false, false)
-	if again := reduce(conv, "ultra", 0, true, true, false, false, false); again != conv {
+	conv := reduce(txt, "ultra", 0, true, true, false, false, false, false)
+	if again := reduce(conv, "ultra", 0, true, true, false, false, false, false); again != conv {
 		t.Fatalf("convergence not stable:\n%q\n%q", conv, again)
 	}
 
 	// Convergence is at least as aggressive as a single pass.
-	if estimateTokens(conv) > estimateTokens(reduce(txt, "ultra", 1, true, true, false, false, false)) {
+	if estimateTokens(conv) > estimateTokens(reduce(txt, "ultra", 1, true, true, false, false, false, false)) {
 		t.Fatal("converged output larger than a single pass")
 	}
 }
@@ -222,12 +222,12 @@ func TestApplyArrows(t *testing.T) {
 func TestReduceArrowsOptIn(t *testing.T) {
 	in := "A cache miss leads to a slow query which produces a timeout"
 	// Off by default: no arrow.
-	off := reduce(in, "full", 0, true, false, false, false, false)
+	off := reduce(in, "full", 0, true, false, false, false, false, false)
 	if strings.Contains(off, "->") {
 		t.Fatalf("arrows must be off by default: %q", off)
 	}
 	// On: arrow survives the reduction and sits between content words.
-	on := reduce(in, "full", 0, true, false, false, false, true)
+	on := reduce(in, "full", 0, true, false, false, false, true, false)
 	if !strings.Contains(on, "->") {
 		t.Fatalf("expected arrow in reduced output: %q", on)
 	}
@@ -282,7 +282,7 @@ func TestWenyanBaseLevel(t *testing.T) {
 }
 
 func TestReduceWenyanSwapsAndKeepsCode(t *testing.T) {
-	got := reduce("The wise king studies pkg/x/y.go", "wenyan", 0, true, false, false, false, false)
+	got := reduce("The wise king studies pkg/x/y.go", "wenyan", 0, true, false, false, false, false, false)
 	if !strings.Contains(got, "智") || !strings.Contains(got, "王") {
 		t.Fatalf("expected wenyan chars in %q", got)
 	}
@@ -293,7 +293,7 @@ func TestReduceWenyanSwapsAndKeepsCode(t *testing.T) {
 
 func TestReducePreservesLiterals(t *testing.T) {
 	in := "See https://example.com/a/b?q=1 and pkg/agent/loop.go, then run `make build` at version 1.2.3."
-	got := reduce(in, "ultra", 0, true, true, true, false, false)
+	got := reduce(in, "ultra", 0, true, true, true, false, false, false)
 	for _, lit := range []string{
 		"https://example.com/a/b?q=1", "pkg/agent/loop.go", "`make build`", "1.2.3",
 	} {
@@ -315,7 +315,7 @@ func TestReducePreservesFileNamesAndPaths(t *testing.T) {
 	in := "First open main.go and README.md, then read /Users/joel/Projects/turo/shrink.go " +
 		"and ~/.claude/CLAUDE.md while CLAUDE_CONFIG_DIR is set. Run `git status` before the block:\n" +
 		fence + "\nThat is the whole boring plan you should carefully follow."
-	got := reduce(in, "ultra", 0, true, true, true, false, true)
+	got := reduce(in, "ultra", 0, true, true, true, false, true, false)
 	for _, lit := range []string{
 		"main.go", "README.md",
 		"/Users/joel/Projects/turo/shrink.go", "~/.claude/CLAUDE.md",

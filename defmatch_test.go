@@ -111,7 +111,7 @@ func TestApplyDefMatchSkipsSentinelWindows(t *testing.T) {
 func TestReducePreservesDefMatchHeadwords(t *testing.T) {
 	const in = "The state of disorder and lawlessness spread through the region."
 
-	got := reduce(in, "lite", 1, true, true, true, true, true)
+	got := reduce(in, "lite", 1, true, true, true, true, true, false)
 	if !strings.Contains(strings.ToLower(got), "anarchy") {
 		t.Errorf("reduce(%q) = %q, want it to contain the headword \"anarchy\"", in, got)
 	}

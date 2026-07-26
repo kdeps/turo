@@ -92,7 +92,7 @@ func showDoctor(cfg proxyConfig) {
 
 	d.section("pipeline self-test")
 	const sample = "I would really appreciate it if you could please carefully review the changes"
-	out := reduce(sample, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows)
+	out := reduce(sample, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows, cfg.markdown)
 	bt, at := estimateTokens(sample), estimateTokens(out)
 	if at < bt {
 		d.ok("%d -> %d tokens (%s smaller) at level %s", bt, at, pct(bt-at, bt), cfg.level)
