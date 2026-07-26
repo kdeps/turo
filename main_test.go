@@ -238,6 +238,67 @@ func TestReduceArrowsOptIn(t *testing.T) {
 	}
 }
 
+func TestArrowPhrasesAreMultiWordAndForward(t *testing.T) {
+	// Every phrase must be >=2 words, or "->" is not cheaper than the original.
+	for _, p := range arrowPhrases {
+		if len(strings.Fields(p)) < 2 {
+			t.Errorf("arrow phrase %q is a single token; -> saves nothing", p)
+		}
+	}
+	// Backward connectives name the cause after the effect. An arrow there
+	// inverts the sentence, so they must never enter the table.
+	backward := []string{
+		"due to", "because of", "owing to", "as a result of", "on account of",
+		"stems from", "stem from", "arises from", "arise from", "caused by",
+		"resulting from", "thanks to", "derives from", "derive from",
+	}
+	for _, b := range backward {
+		if applyArrows("the outage "+b+" a bad deploy") != "the outage "+b+" a bad deploy" {
+			t.Errorf("backward connective %q must not become an arrow", b)
+		}
+	}
+}
+
+func TestArrowLongestPhraseWins(t *testing.T) {
+	// Each long phrase contains a shorter table entry. Go's regexp takes the
+	// leftmost alternative, so without the longest-first sort the short branch
+	// would match and strand the leading word.
+	cases := map[string]string{
+		"the retry which results in a stall": "which",
+		"the retry which means that it hangs": "which",
+		"a flag which causes a rebuild":       "which",
+	}
+	for in, stranded := range cases {
+		got := applyArrows(in)
+		if strings.Count(got, "->") != 1 {
+			t.Errorf("applyArrows(%q) = %q, want exactly one arrow", in, got)
+		}
+		if strings.Contains(got, stranded+" ->") {
+			t.Errorf("applyArrows(%q) = %q, stranded %q before the arrow", in, got, stranded)
+		}
+	}
+}
+
+func TestArrowNewPhrasesMatch(t *testing.T) {
+	// A sample from each family added alongside the originals.
+	for _, in := range []string{
+		"the patch brings about a regression",
+		"the flag contributes to the stall",
+		"the retries culminate in a timeout",
+		"the parse step is followed by a write",
+		"the source compiles to a binary",
+		"the alias resolves to a path",
+		"the config defaults to strict",
+		"the macro expands to three calls",
+		"the request transforms into a job",
+		"the value amounts to a no-op",
+	} {
+		if got := applyArrows(in); !strings.Contains(got, "->") {
+			t.Errorf("applyArrows(%q) = %q, want an arrow", in, got)
+		}
+	}
+}
+
 func TestCleanupArrows(t *testing.T) {
 	cases := map[string]string{
 		"-> cache miss":       "cache miss",

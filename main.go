@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -354,22 +355,52 @@ func applyGloss(text string) string { return swapWords(text, definitionGloss) }
 // arrowPhrases are multi-word causal/sequential/transformation connectives that
 // a single "->" token expresses. Every entry is two or more words (>=2 tokens),
 // so the swap always saves at least one token — single-token connectives
-// (then, thus, becomes) are excluded because "->" costs the same. Ordered
-// longest-first so "gives rise to" wins over any shorter overlapping phrase.
+// (then, thus, becomes) are excluded because "->" costs the same.
+//
+// Every entry must read left-to-right: the thing before the phrase produces or
+// precedes the thing after it. Backward connectives ("due to", "because of",
+// "owing to", "as a result of", "stems from") are deliberately absent — they
+// name the cause *after* the effect, so an arrow there points the wrong way and
+// silently inverts the sentence.
+//
+// Order does not matter; buildArrowRegex sorts longest-first so the longest
+// matching phrase always wins over a shorter one it contains.
 //
 //nolint:gochecknoglobals // static phrase table for the arrow regex
 var arrowPhrases = []string{
+	// causal
 	"gives rise to", "give rise to", "gave rise to", "giving rise to",
+	"brings about", "bring about", "brought about", "bringing about",
+	"contributes to", "contribute to", "contributed to", "contributing to",
+	"culminates in", "culminate in", "culminated in", "culminating in",
 	"which results in", "which produces", "which yields", "which gives",
-	"in order to", "so as to",
+	"which causes", "which cause", "which caused",
+	"with the result that", "which in turn", "and therefore", "and thus",
+	"and hence", "which means that", "which means", "meaning that",
 	"resulting in", "results in", "result in", "resulted in",
 	"leading to", "leads to", "lead to", "led to",
+	// purpose
+	"in order to", "so as to", "so that", "such that",
+	// sequential
+	"followed by", "and then", "after which", "at which point",
+	// transformation
 	"translates to", "translate to", "translated to",
+	"transforms into", "transform into", "transformed into", "transforming into",
+	"evolves into", "evolve into", "evolved into", "evolving into",
+	"changes into", "change into", "changed into",
 	"converts to", "convert to", "converted to",
 	"turns into", "turn into", "turned into", "turning into",
+	"compiles to", "compile to", "compiled to",
+	"expands to", "expand to", "expanded to",
+	"resolves to", "resolve to", "resolved to",
+	"reduces to", "reduce to", "reduced to",
+	"renders as", "render as", "rendered as",
+	"corresponds to", "correspond to", "corresponding to",
+	"equates to", "equate to", "amounts to", "amount to",
+	"boils down to", "defaults to", "default to",
 	"gives way to", "give way to",
 	"maps to", "map to", "mapped to",
-	"so that",
+	"points to", "point to",
 }
 
 // reArrow matches any arrow phrase, case-insensitively, with word boundaries.
@@ -379,9 +410,18 @@ var arrowPhrases = []string{
 //nolint:gochecknoglobals // compiled once from arrowPhrases
 var reArrow = buildArrowRegex()
 
+// buildArrowRegex compiles arrowPhrases into one alternation, longest phrase
+// first. Go's regexp picks the leftmost alternative that matches at a position,
+// not the longest, so "which results in" has to precede "results in" or the
+// shorter branch would claim the tail and leave "which" stranded.
 func buildArrowRegex() *regexp.Regexp {
-	parts := make([]string, len(arrowPhrases))
-	for i, p := range arrowPhrases {
+	sorted := make([]string, len(arrowPhrases))
+	copy(sorted, arrowPhrases)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return len(sorted[i]) > len(sorted[j])
+	})
+	parts := make([]string, len(sorted))
+	for i, p := range sorted {
 		parts[i] = strings.ReplaceAll(regexp.QuoteMeta(p), " ", `\s+`)
 	}
 	return regexp.MustCompile(`(?i)\b(?:` + strings.Join(parts, "|") + `)\b`)

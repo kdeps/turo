@@ -141,11 +141,18 @@ gloss-before-synonyms order in the cheapest tier, three tokens ahead of the
 inverse. Arrow and filler placement is free; only the two phrase-then-word
 constraints (defmatch before gloss, gloss before synonyms) cost anything.
 
-`-arrows` (on by default) replaces multi-word causal/sequential connectives
-(`leads to`, `results in`, `gives rise to`, `which produces`) with a single `->`
-token. Only multi-word phrases qualify, so the swap always saves at least one
-token; single-token connectives (`then`, `becomes`, `thus`) are left alone
-because `->` costs the same. Disable with `-arrows=false` / `TURO_ARROWS=off`.
+`-arrows` (on by default) replaces multi-word causal, sequential, and
+transformation connectives (`leads to`, `results in`, `gives rise to`,
+`which produces`, `brings about`, `culminates in`, `followed by`,
+`compiles to`, `resolves to`, `defaults to`) with a single `->` token. Only
+multi-word phrases qualify, so the swap always saves at least one token;
+single-token connectives (`then`, `becomes`, `thus`) are left alone because
+`->` costs the same. Disable with `-arrows=false` / `TURO_ARROWS=off`.
+
+Every phrase in the table reads left to right — what precedes it produces or
+precedes what follows. Backward connectives (`due to`, `because of`, `stems
+from`, `caused by`) name the cause *after* the effect, so they are deliberately
+excluded: an arrow there would point the wrong way and invert the sentence.
 
 ```text
 A cache miss leads to a slow query which produces a timeout
