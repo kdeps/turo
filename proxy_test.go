@@ -137,7 +137,7 @@ func TestShouldReduce(t *testing.T) {
 	}
 }
 
-func TestReducePayloadAllowlist(t *testing.T) {
+func TestReducePayloadSafeMode(t *testing.T) {
 	prose := "Please utilize this approach to demonstrate the functionality."
 	table := "| A | B |\n|---|---|\n| one | two |\n| three | four |"
 	body := `{"model":"x","messages":[` +
@@ -149,8 +149,8 @@ func TestReducePayloadAllowlist(t *testing.T) {
 		`{"type":"text","text":"` + prose + `"}]}` +
 		`]}`
 
-	// allowlist ON: prose reduces; table, tool role, and tool_result pass through.
-	out, _, _ := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, allowlist: true})
+	// safe mode ON: prose reduces; table, tool role, and tool_result pass through.
+	out, _, _ := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, safeMode: true})
 	msgs := payloadMsgs(t, out)
 	if s := msgs[0]["content"].(string); strings.Contains(s, "Please") {
 		t.Errorf("prose user msg should reduce, got %q", s)
@@ -170,14 +170,14 @@ func TestReducePayloadAllowlist(t *testing.T) {
 		t.Errorf("plain text block should reduce, got %q", txt)
 	}
 
-	// allowlist OFF: table and tool role now reduce too.
-	out2, _, _ := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, allowlist: false})
+	// safe mode OFF: table and tool role now reduce too.
+	out2, _, _ := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, safeMode: false})
 	m2 := payloadMsgs(t, out2)
 	if s := m2[1]["content"].(string); s == table {
-		t.Errorf("with allowlist off, table should reduce, got verbatim %q", s)
+		t.Errorf("with safe mode off, table should reduce, got verbatim %q", s)
 	}
 	if s := m2[2]["content"].(string); s == prose {
-		t.Errorf("with allowlist off, tool role should reduce, got verbatim %q", s)
+		t.Errorf("with safe mode off, tool role should reduce, got verbatim %q", s)
 	}
 }
 

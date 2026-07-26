@@ -134,7 +134,7 @@ var reFenceBlock = regexp.MustCompile("(?s)```.*?```")
 
 // isStructured reports whether text is dominated by code fences, tables, or
 // list/heading markup — layout that prose reduction would scramble. The proxy
-// allowlist uses it to pass such content through verbatim; ordinary prose (even
+// safe mode uses it to pass such content through verbatim; ordinary prose (even
 // with the odd bullet) still reduces.
 func isStructured(s string) bool {
 	s = strings.TrimSpace(s)

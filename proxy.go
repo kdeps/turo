@@ -23,7 +23,7 @@ type proxyConfig struct {
 	defmatch  bool
 	arrows    bool
 	markdown  bool // keep markdown/HTML structure and reduce only the prose inside it
-	allowlist bool // pass structured content (tool I/O, code/tables/lists) through unreduced
+	safeMode bool // pass structured content (tool I/O, code/tables/lists) through unreduced
 	verbose   bool // print proxy activity (banner, token summary, before -> after text); off = silent
 }
 
@@ -150,13 +150,13 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 		if !shouldReduce(role, cfg.all) {
 			continue
 		}
-		// Allowlist: OpenAI tool messages are structured I/O — pass through.
-		if cfg.allowlist && role == "tool" {
+		// Safe mode: OpenAI tool messages are structured I/O — pass through.
+		if cfg.safeMode && role == "tool" {
 			continue
 		}
 		switch c := mm["content"].(type) {
 		case string:
-			if cfg.allowlist && isStructured(c) {
+			if cfg.safeMode && isStructured(c) {
 				continue
 			}
 			mm["content"] = red(role, c)
@@ -168,7 +168,7 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 				}
 				// Skip structured tool blocks: tool_use args and tool_result
 				// output (web results, file/code reads, TUI dumps).
-				if cfg.allowlist {
+				if cfg.safeMode {
 					if bt, _ := pm["type"].(string); bt == "tool_use" || bt == "tool_result" {
 						continue
 					}
@@ -177,7 +177,7 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 				if !ok {
 					continue
 				}
-				if cfg.allowlist && isStructured(t) {
+				if cfg.safeMode && isStructured(t) {
 					continue
 				}
 				pm["text"] = red(role, t)
