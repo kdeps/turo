@@ -186,7 +186,7 @@ the macro desugars to a loop
   =>  Macro -> loop
 
 the outage caused by a bad deploy
-  =>  Outage cause bad deploy
+  =>  Outage -> bad deploy
 ```
 
 ## Savings — `turo gain`
