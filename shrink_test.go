@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // shrinkProse used to swap protected literals for space-wrapped numeric
 // sentinels (" 3 "), so a bare integer in the prose could be restored as the
@@ -61,6 +64,46 @@ func TestReduceNeverLargerAndConverges(t *testing.T) {
 				t.Errorf("level %s: second reduce grew output %q -> %q", level, out, again)
 			}
 		}
+	}
+}
+
+func TestReduceAroundProtected(t *testing.T) {
+	intro := "Please utilize this approach carefully."
+	bash := "$ go test ./...\nok\tpkg\t1.0s"
+	outro := "It appears the tests failed and you should fix the approach."
+	in := intro + "\n\n" + bash + "\n\n" + outro
+
+	var redN, passN int
+	red := func(_, s string) string {
+		redN++
+		// Cheap stand-in: drop a known filler so we can see reduction happened.
+		return strings.ReplaceAll(s, "Please ", "")
+	}
+	pass := func(s string) { passN++; _ = s }
+
+	got := reduceAroundProtected(in, "tool", red, pass)
+	if !strings.Contains(got, bash) {
+		t.Fatalf("protected bash missing: %q", got)
+	}
+	if strings.Contains(got, "Please") {
+		t.Fatalf("intro should have been reduced: %q", got)
+	}
+	if redN < 1 {
+		t.Fatalf("expected prose red calls, got %d", redN)
+	}
+	if passN < 1 {
+		t.Fatalf("expected protected pass calls, got %d", passN)
+	}
+
+	// Pure dump: no prose runs → identity.
+	passN = 0
+	redN = 0
+	got = reduceAroundProtected(bash+"\n", "tool", red, pass)
+	if got != bash+"\n" {
+		t.Fatalf("pure dump should be identity, got %q", got)
+	}
+	if redN != 0 {
+		t.Fatalf("pure dump should not call red, redN=%d", redN)
 	}
 }
 

@@ -346,11 +346,149 @@ var (
 	reINISection = regexp.MustCompile(`(?m)^(?:\[[\w.-]+\]|[A-Za-z0-9_.-]+\s*=\s*(?:"[^"]*"|\S+))\s*$`)
 )
 
+// isSafeProtectedLine reports whether a single non-empty line must stay
+// verbatim under proxy safe mode: machine dumps, tables, fences, stack/diff
+// frames. List/heading lines are NOT protected here so their prose can still
+// reduce via the normal (markdown-aware) pipeline when they form a run.
+func isSafeProtectedLine(raw, trimmed string) bool {
+	if fenceMarker(trimmed) != "" {
+		return true
+	}
+	if isTableRow(trimmed) || reTableAlign.MatchString(trimmed) {
+		return true
+	}
+	if isMachineLine(trimmed) {
+		return true
+	}
+	if reStackTrace.MatchString(trimmed) || reDiffHunk.MatchString(trimmed) {
+		return true
+	}
+	if reANSIEscape.MatchString(trimmed) {
+		return true
+	}
+	// Indented code (not a nested list item).
+	if isIndentedCode(raw) && !reListLine.MatchString(raw) {
+		return true
+	}
+	return false
+}
+
+// reduceAroundProtected walks text under proxy safe mode: fenced code, tables,
+// and machine/shell/log lines pass through verbatim, while contiguous prose
+// runs still reduce. Mixed blobs (intro + dump + outro) therefore save tokens
+// without scrambling the protected regions.
+//
+// red is invoked only on prose runs; pass is invoked on each protected span so
+// gain accounting still counts those tokens on both sides.
+func reduceAroundProtected(text string, role string, red func(role, s string) string, pass func(string)) string {
+	if text == "" {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	var prose []string
+
+	flushProse := func() {
+		if len(prose) == 0 {
+			return
+		}
+		joined := strings.Join(prose, "\n")
+		out = append(out, red(role, joined))
+		prose = prose[:0]
+	}
+	// emitPass appends a protected multi-line span and counts it as unreduced.
+	emitPass := func(block []string) {
+		if len(block) == 0 {
+			return
+		}
+		flushProse()
+		joined := strings.Join(block, "\n")
+		pass(joined)
+		out = append(out, joined)
+	}
+
+	for i := 0; i < len(lines); i++ {
+		ln := lines[i]
+		trimmed := strings.TrimSpace(ln)
+
+		if trimmed == "" {
+			// Blank lines separate runs; keep them outside both red and pass
+			// so token accounting is not double-counted on empty fields.
+			flushProse()
+			out = append(out, ln)
+			continue
+		}
+
+		// Fenced code: verbatim through the closing fence (or EOF).
+		if fence := fenceMarker(trimmed); fence != "" {
+			block := []string{ln}
+			for i++; i < len(lines); i++ {
+				block = append(block, lines[i])
+				if strings.HasPrefix(strings.TrimSpace(lines[i]), fence) {
+					break
+				}
+			}
+			emitPass(block)
+			continue
+		}
+
+		// PEM / certificate blocks through the END line.
+		if rePEMBlock.MatchString(trimmed) {
+			block := []string{ln}
+			for i++; i < len(lines); i++ {
+				block = append(block, lines[i])
+				if strings.Contains(lines[i], "-----END ") {
+					break
+				}
+			}
+			emitPass(block)
+			continue
+		}
+
+		// Contiguous protected lines (tables, shell, stack frames, …).
+		if isSafeProtectedLine(ln, trimmed) {
+			block := []string{ln}
+			for i+1 < len(lines) {
+				next := lines[i+1]
+				nt := strings.TrimSpace(next)
+				if nt == "" {
+					// Keep internal blank lines inside a protected dump so
+					// shell transcripts with blank separators stay whole.
+					// Stop if the blank is followed by non-protected prose.
+					if i+2 < len(lines) {
+						after := strings.TrimSpace(lines[i+2])
+						if after != "" && !isSafeProtectedLine(lines[i+2], after) && fenceMarker(after) == "" {
+							break
+						}
+					}
+					block = append(block, next)
+					i++
+					continue
+				}
+				if fenceMarker(nt) != "" || rePEMBlock.MatchString(nt) {
+					break // let the outer loop handle the next block type
+				}
+				if !isSafeProtectedLine(next, nt) {
+					break
+				}
+				block = append(block, next)
+				i++
+			}
+			emitPass(block)
+			continue
+		}
+
+		prose = append(prose, ln)
+	}
+	flushProse()
+	return strings.Join(out, "\n")
+}
+
 // isStructured reports whether text is dominated by layout or machine output
 // that prose reduction would scramble: code fences, tables, lists, shell
 // dumps, stack traces, JSON, diffs, build logs, and similar. Proxy safe mode
-// passes such content through; ordinary prose (including prose tool results)
-// still reduces.
+// uses this to choose reduceAroundProtected (prose still shrinks around
+// protected regions) rather than a flat reduce that would mangle the dump.
 func isStructured(s string) bool {
 	s = strings.TrimSpace(s)
 	if s == "" {

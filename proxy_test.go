@@ -233,6 +233,53 @@ func TestReducePayloadSafeModeSmartToolResults(t *testing.T) {
 	}
 }
 
+// TestReducePayloadSafeModeReducesAroundProtected checks that mixed blobs —
+// prose intro/outro wrapped around a machine dump — shrink the prose while
+// leaving the dump byte-identical. Previously safe mode skipped the whole field.
+func TestReducePayloadSafeModeReducesAroundProtected(t *testing.T) {
+	intro := "Please utilize this approach to demonstrate the functionality carefully."
+	bash := "$ go test ./...\nok  \tgithub.com/kdeps/turo\t1.234s\nFAIL\tgithub.com/kdeps/turo/x\t0.100s\n--- FAIL: TestFoo (0.00s)"
+	outro := "Based on this, it appears the functionality is broken and you should fix the approach."
+	mixed := intro + "\n\n" + bash + "\n\n" + outro
+	code := "```go\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n```"
+	mixedFence := intro + "\n\n" + code + "\n\n" + outro
+
+	body := `{"model":"x","messages":[` +
+		`{"role":"tool","content":` + jsonStr(mixed) + `},` +
+		`{"role":"user","content":` + jsonStr(mixedFence) + `}` +
+		`]}`
+
+	out, before, after := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, safeMode: true})
+	msgs := payloadMsgs(t, out)
+
+	gotBash := msgs[0]["content"].(string)
+	if !strings.Contains(gotBash, bash) {
+		t.Errorf("bash dump should survive intact inside mixed blob, got %q", gotBash)
+	}
+	if strings.Contains(gotBash, "Please") || strings.Contains(gotBash, "utilize") {
+		t.Errorf("intro prose around bash should reduce, got %q", gotBash)
+	}
+	if strings.Contains(gotBash, "it appears") {
+		t.Errorf("outro prose around bash should reduce, got %q", gotBash)
+	}
+
+	gotFence := msgs[1]["content"].(string)
+	if !strings.Contains(gotFence, code) {
+		t.Errorf("fenced code should survive intact inside mixed blob, got %q", gotFence)
+	}
+	if strings.Contains(gotFence, "Please") {
+		t.Errorf("prose around fence should reduce, got %q", gotFence)
+	}
+
+	if after >= before {
+		t.Fatalf("mixed safe-mode blob should save tokens: before=%d after=%d", before, after)
+	}
+	// Pure wholesale skip would save nothing on these structured fields.
+	if saved := before - after; saved < 3 {
+		t.Fatalf("expected meaningful savings around protected spans, saved=%d (before=%d after=%d)", saved, before, after)
+	}
+}
+
 // TestReducePayloadSafeModeGainCountsPassthrough locks the gain bug where
 // unreduced safe-mode fields were omitted from before/after, making
 // tokens-saved % look far higher than the true request compression.

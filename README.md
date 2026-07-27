@@ -547,15 +547,17 @@ verbatim. Auth headers pass through; non-chat paths are forwarded unchanged.
 - **Always pass through** tool *calls* (`tool_use` / `function_call` args and
   similar machinery) — those are JSON the agent must parse byte-for-byte.
 - **Tool results and other text** (including `role: tool`, `tool_result`,
-  `function_call_output`) are inspected with `isStructured`: prose still
-  reduces; code fences, tables, lists, shell transcripts, stack traces, JSON,
-  diffs, build/test logs, and other machine dumps pass through unreduced.
+  `function_call_output`) are inspected with `isStructured`. Pure prose still
+  reduces fully. When a field is structured, **protected spans** (code fences,
+  tables, shell transcripts, stack traces, JSON, diffs, build/test logs, and
+  other machine dumps) stay byte-identical, while **prose around them still
+  reduces** — so a mixed “here’s the dump… `$ go test` … please fix the
+  approach” blob shrinks the intro/outro without scrambling the transcript.
 
-So a tool reply like “the search found three packages…” squeezes, while
-`$ go test` output and fenced source do not. Disable with
-`-proxy-safe-mode=false` / `TURO_SAFE_MODE=off` to reduce every eligible field
-regardless of shape. Unreduced fields still count toward `turo gain`
-(before = after for those spans) so reported savings reflect the whole request.
+Disable with `-proxy-safe-mode=false` / `TURO_SAFE_MODE=off` to reduce every
+eligible field regardless of shape (including inside dumps). Unreduced spans
+still count toward `turo gain` (before = after for those spans) so reported
+savings reflect the whole request.
 
 Transient upstream failures (`502`, `503`, `504`, `529`) are retried by the proxy
 itself — up to 3 attempts, waiting for the upstream's `Retry-After` when it sends

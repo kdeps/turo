@@ -104,7 +104,7 @@ func listRunTargets() {
 	fmt.Println("  -special=false                  strip specials (C++/$5/array[0] kept by default)")
 	fmt.Println("  -proxy-all=false                reduce only user + tool (default: every role)")
 	fmt.Println("  -proxy-verbose                  print proxy activity (default: silent)")
-	fmt.Println("  -proxy-safe-mode=false          also reduce code/shell/table dumps (default: content-shaped skip)")
+	fmt.Println("  -proxy-safe-mode=false          also reduce code/shell/table dumps (default: protect dumps, reduce prose around them)")
 	fmt.Println("  -upstream URL                   override the agent's upstream endpoint")
 	fmt.Println("\nExamples:")
 	fmt.Println("  turo -level ultra -proxy-verbose run codex")

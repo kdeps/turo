@@ -24,7 +24,7 @@ type proxyConfig struct {
 	arrows   bool
 	markdown bool // keep markdown/HTML structure and reduce only the prose inside it
 	special  bool // preserve tokens with special characters (C++, $5, array[0], …)
-	safeMode bool // pass structured content (tool I/O, code/tables/lists) through unreduced
+	safeMode bool // protect structured spans (code/tables/shell); still reduce prose around them
 	verbose  bool // print proxy activity (banner, token summary, before -> after text); off = silent
 }
 
@@ -117,9 +117,9 @@ func isChatPath(path string) bool {
 // reducePayload reduces the content of eligible messages in an OpenAI/Anthropic
 // (or OpenAI Responses) request body. Returns the rewritten body and estimated
 // before/after token totals across every text field the proxy considered —
-// reduced fields contribute their compressed size; safe-mode (and other)
-// passthroughs contribute the same count to both sides so turo gain does not
-// inflate % saved by ignoring unreduced tool I/O and structured blobs.
+// reduced fields contribute their compressed size; safe-mode protected spans
+// (and other passthroughs) contribute the same count to both sides so turo
+// gain does not inflate % saved by ignoring unreduced tool I/O and dumps.
 func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -136,8 +136,8 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 		}
 		return out
 	}
-	// pass counts text left unreduced (safe-mode skips, ineligible roles) so
-	// gain's tokens-in/out match the full request the upstream still receives.
+	// pass counts text left unreduced (safe-mode protected spans, ineligible
+	// roles) so gain's tokens-in/out match the full request the upstream gets.
 	pass := func(s string) {
 		if s == "" {
 			return
@@ -156,11 +156,11 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 	// reducing all roles).
 	if cfg.all {
 		if s, ok := payload["system"].(string); ok {
-			payload["system"] = red("system", s)
+			payload["system"] = safeRed(cfg, "system", s, red, pass)
 			known = true
 		}
 		if s, ok := payload["instructions"].(string); ok {
-			payload["instructions"] = red("instructions", s)
+			payload["instructions"] = safeRed(cfg, "instructions", s, red, pass)
 			known = true
 		}
 	}
@@ -177,10 +177,10 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 		known = true
 		switch v := in.(type) {
 		case string:
-			if !shouldReduce("user", cfg.all) || (cfg.safeMode && isStructured(v)) {
+			if !shouldReduce("user", cfg.all) {
 				pass(v)
 			} else {
-				payload["input"] = red("user", v)
+				payload["input"] = safeRed(cfg, "user", v, red, pass)
 			}
 		case []any:
 			reduceMessageList(v, cfg, red, pass)
@@ -203,8 +203,8 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 // unreduced so token accounting stays honest under -proxy-safe-mode.
 //
 // Safe mode is content-shaped, not role-shaped: tool *calls* (JSON args) always
-// pass through, but tool *results* and other text reduce unless isStructured
-// says they look like code, shell dumps, tables, JSON, etc.
+// pass through; tool *results* and other text reduce, protecting structured
+// spans (code/shell/tables) while still shrinking prose around them.
 func reduceMessageList(msgs []any, cfg proxyConfig, red func(role, s string) string, pass func(string)) {
 	for _, m := range msgs {
 		mm, ok := m.(map[string]any)
@@ -261,12 +261,13 @@ func reduceMessageList(msgs []any, cfg proxyConfig, red func(role, s string) str
 	}
 }
 
-// safeRed reduces s unless safe mode is on and the text looks structured
-// (code, shell output, tables, JSON, …). Passthrough still counts toward gain.
+// safeRed reduces s. When safe mode is on and the text looks structured
+// (code, shell output, tables, JSON, …), protected spans pass through and
+// contiguous prose around them still reduces — wholesale skip is avoided so
+// mixed tool dumps keep shrinking. Pure dumps stay byte-identical.
 func safeRed(cfg proxyConfig, role, s string, red func(role, s string) string, pass func(string)) string {
 	if cfg.safeMode && isStructured(s) {
-		pass(s)
-		return s
+		return reduceAroundProtected(s, role, red, pass)
 	}
 	return red(role, s)
 }
