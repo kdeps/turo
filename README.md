@@ -395,14 +395,16 @@ To compress **all** input for an agent that turo can't reach from the inside
 ```bash
 turo run claude          # every claude request reduced, base URL wired for you
 turo run codex           # OPENAI_BASE_URL wired instead
+turo run grok            # GROK_CLI_CHAT_PROXY_BASE_URL -> cli-chat-proxy.grok.com
 turo run                 # list supported agents
 ```
 
 `turo run` starts an in-process proxy on a free port, points the agent's
 base-URL env var at it (`ANTHROPIC_BASE_URL` for claude, `OPENAI_BASE_URL` for
-OpenAI-compatible agents), execs the agent, and stops the proxy when it exits.
-One command, no exports, no `/turo` inside the agent. Supported:
-`claude`, `codex`, `opencode`, `qwen`, `aider`, `crush`, `goose`, `amp`.
+OpenAI-compatible agents, `GROK_CLI_CHAT_PROXY_BASE_URL` for Grok Build), execs
+the agent, and stops the proxy when it exits. One command, no exports, no
+`/turo` inside the agent. Supported: `claude`, `codex`, `opencode`, `qwen`,
+`aider`, `crush`, `goose`, `amp`, `grok`.
 
 ### `turo -proxy` — the proxy on its own
 
@@ -414,12 +416,12 @@ turo -proxy -proxy-safe-mode                    # keep tool I/O + code/tables ve
 export OPENAI_BASE_URL=http://127.0.0.1:8787/v1
 ```
 
-Every `/chat/completions` (and Anthropic `/messages`) request has its message
-content reduced before it reaches the real endpoint; the response streams back
-untouched. By default **every role** is reduced (`-proxy-all` is on); pass
-`-proxy-all=false` to reduce only `user` and `tool` content and leave system and
-assistant history verbatim. Auth headers pass through; non-chat paths are
-forwarded unchanged.
+Every `/chat/completions`, Anthropic `/messages`, and OpenAI Responses
+`/responses` (Grok Build) request has its message content reduced before it
+reaches the real endpoint; the response streams back untouched. By default
+**every role** is reduced (`-proxy-all` is on); pass `-proxy-all=false` to
+reduce only `user` and `tool` content and leave system and assistant history
+verbatim. Auth headers pass through; non-chat paths are forwarded unchanged.
 
 `-proxy-safe-mode` (off by default) keeps structured content out of the reducer:
 OpenAI `tool` messages, Anthropic `tool_use` args and `tool_result` output, and

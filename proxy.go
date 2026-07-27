@@ -105,15 +105,18 @@ func rolesLabel(all bool) string {
 	return "user + tool roles"
 }
 
-// isChatPath reports whether a request path is a chat-completions or messages
-// endpoint whose body carries reducible message content.
+// isChatPath reports whether a request path is a chat-completions, messages,
+// or Responses endpoint whose body carries reducible message content.
 func isChatPath(path string) bool {
-	return strings.HasSuffix(path, "/chat/completions") || strings.HasSuffix(path, "/messages")
+	return strings.HasSuffix(path, "/chat/completions") ||
+		strings.HasSuffix(path, "/messages") ||
+		strings.HasSuffix(path, "/responses")
 }
 
 // reducePayload reduces the content of eligible messages in an OpenAI/Anthropic
-// request body. Returns the rewritten body and estimated before/after token
-// totals of the reduced fields, or nil if the body is not reducible JSON.
+// (or OpenAI Responses) request body. Returns the rewritten body and estimated
+// before/after token totals of the reduced fields, or nil if the body is not
+// reducible JSON.
 func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -130,28 +133,81 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 		return out
 	}
 
-	// Anthropic top-level system prompt (only when reducing all roles).
+	// True once we see a field the reducer knows how to walk. Without this we
+	// would re-marshal arbitrary non-chat JSON (e.g. /v1/models) if a caller
+	// ever bypassed isChatPath.
+	known := false
+
+	// Anthropic top-level system prompt / Responses instructions (only when
+	// reducing all roles).
 	if cfg.all {
 		if s, ok := payload["system"].(string); ok {
 			payload["system"] = red("system", s)
+			known = true
+		}
+		if s, ok := payload["instructions"].(string); ok {
+			payload["instructions"] = red("instructions", s)
+			known = true
 		}
 	}
 
-	msgs, ok := payload["messages"].([]any)
-	if !ok {
+	// Chat Completions + Anthropic Messages: top-level messages array.
+	if msgs, ok := payload["messages"].([]any); ok {
+		reduceMessageList(msgs, cfg, red)
+		known = true
+	}
+
+	// OpenAI Responses API (Grok Build default): top-level input is a string
+	// or an array of message / tool items — no messages field.
+	if in, ok := payload["input"]; ok {
+		known = true
+		switch v := in.(type) {
+		case string:
+			if shouldReduce("user", cfg.all) && !(cfg.safeMode && isStructured(v)) {
+				payload["input"] = red("user", v)
+			}
+		case []any:
+			reduceMessageList(v, cfg, red)
+		}
+	}
+
+	if !known {
 		return nil, 0, 0
 	}
+
+	out, err := json.Marshal(payload)
+	if err != nil {
+		return nil, 0, 0
+	}
+	return out, before, after
+}
+
+// reduceMessageList walks a messages or Responses input array and reduces
+// eligible text fields in place.
+func reduceMessageList(msgs []any, cfg proxyConfig, red func(role, s string) string) {
 	for _, m := range msgs {
 		mm, ok := m.(map[string]any)
 		if !ok {
 			continue
 		}
-		role, _ := mm["role"].(string)
+		// Responses tool I/O items use type instead of (or alongside) role.
+		itemType, _ := mm["type"].(string)
+		if cfg.safeMode && isResponsesToolItem(itemType) {
+			continue
+		}
+		role := responsesRole(mm, itemType)
 		if !shouldReduce(role, cfg.all) {
 			continue
 		}
 		// Safe mode: OpenAI tool messages are structured I/O — pass through.
 		if cfg.safeMode && role == "tool" {
+			continue
+		}
+		// Responses function_call_output.output is a string tool result.
+		if s, ok := mm["output"].(string); ok && itemType == "function_call_output" {
+			if !(cfg.safeMode && isStructured(s)) {
+				mm["output"] = red(role, s)
+			}
 			continue
 		}
 		switch c := mm["content"].(type) {
@@ -160,7 +216,7 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 				continue
 			}
 			mm["content"] = red(role, c)
-		case []any: // multimodal / Anthropic content blocks: reduce text parts
+		case []any: // multimodal / Anthropic / Responses content blocks
 			for _, part := range c {
 				pm, ok := part.(map[string]any)
 				if !ok {
@@ -173,23 +229,60 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 						continue
 					}
 				}
-				t, ok := pm["text"].(string)
+				t, ok := contentPartText(pm)
 				if !ok {
 					continue
 				}
 				if cfg.safeMode && isStructured(t) {
 					continue
 				}
-				pm["text"] = red(role, t)
+				setContentPartText(pm, red(role, t))
 			}
 		}
 	}
+}
 
-	out, err := json.Marshal(payload)
-	if err != nil {
-		return nil, 0, 0
+// isResponsesToolItem reports Responses API item types whose structured
+// payload should pass through unreduced in safe mode.
+func isResponsesToolItem(itemType string) bool {
+	switch itemType {
+	case "function_call", "function_call_output", "tool_use", "tool_result",
+		"computer_call", "computer_call_output", "file_search_call",
+		"web_search_call", "code_interpreter_call", "mcp_call", "mcp_list_tools":
+		return true
 	}
-	return out, before, after
+	return false
+}
+
+// responsesRole maps a Responses/chat item to a synthetic role for shouldReduce.
+// function_call_output is treated as tool; bare message items use their role.
+func responsesRole(mm map[string]any, itemType string) string {
+	if role, ok := mm["role"].(string); ok && role != "" {
+		return role
+	}
+	switch itemType {
+	case "function_call_output", "tool_result", "computer_call_output":
+		return "tool"
+	case "function_call", "tool_use", "computer_call", "file_search_call",
+		"web_search_call", "code_interpreter_call", "mcp_call":
+		return "assistant"
+	}
+	return "user"
+}
+
+// contentPartText extracts a reducible text string from a content part.
+// Handles chat/Anthropic {"text":"..."} and Responses parts that store the
+// string under "text" with type input_text/output_text.
+func contentPartText(pm map[string]any) (string, bool) {
+	if t, ok := pm["text"].(string); ok {
+		return t, true
+	}
+	return "", false
+}
+
+// setContentPartText writes the reduced string back onto the part's text field.
+func setContentPartText(pm map[string]any, s string) {
+	pm["text"] = s
 }
 
 // shouldReduce reports whether a message role is eligible for reduction.

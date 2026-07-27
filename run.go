@@ -32,6 +32,10 @@ var runTargets = map[string]runTarget{
 	"crush":    {cmd: "crush", upstream: "https://api.openai.com", suffix: "/v1", env: []string{"OPENAI_BASE_URL", "OPENAI_API_BASE"}},
 	"goose":    {cmd: "goose", upstream: "https://api.openai.com", suffix: "/v1", env: []string{"OPENAI_BASE_URL", "OPENAI_API_BASE"}},
 	"amp":      {cmd: "amp", upstream: "https://api.openai.com", suffix: "/v1", env: []string{"OPENAI_BASE_URL", "OPENAI_API_BASE"}},
+	// Grok Build (xAI) posts to the OpenAI Responses API at
+	// cli-chat-proxy.grok.com/v1/responses. GROK_CLI_CHAT_PROXY_BASE_URL keeps
+	// session OAuth; GROK_MODELS_BASE_URL would force API-key auth instead.
+	"grok": {cmd: "grok", upstream: "https://cli-chat-proxy.grok.com", suffix: "/v1", env: []string{"GROK_CLI_CHAT_PROXY_BASE_URL"}},
 }
 
 func runTargetIDs() []string {
