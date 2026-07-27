@@ -17,7 +17,7 @@ import (
 // is obvious at a glance.
 var doctorEnvVars = []string{
 	"TURO_HOME", "TURO_LEVEL",
-	"TURO_FILLER", "TURO_SYNONYMS", "TURO_GLOSS", "TURO_ARROWS",
+	"TURO_FILLER", "TURO_SYNONYMS", "TURO_GLOSS", "TURO_ARROWS", "TURO_SPECIAL",
 	"CLAUDE_CONFIG_DIR", "OPENAI_BASE_URL", "XDG_CONFIG_HOME",
 }
 
@@ -92,7 +92,7 @@ func showDoctor(cfg proxyConfig) {
 
 	d.section("pipeline self-test")
 	const sample = "I would really appreciate it if you could please carefully review the changes"
-	out := reduce(sample, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows, cfg.markdown)
+	out := reduce(sample, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows, cfg.markdown, cfg.special)
 	bt, at := estimateTokens(sample), estimateTokens(out)
 	if at < bt {
 		d.ok("%s -> %s tokens (%s smaller) at level %s", humanCount(bt), humanCount(at), pct(bt-at, bt), cfg.level)

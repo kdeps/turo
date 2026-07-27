@@ -61,7 +61,7 @@ func TestNoAdjacentArrowArtifacts(t *testing.T) {
 		"A becomes B becomes C becomes D",
 	}
 	for _, in := range cases {
-		got := reduce(in, "full", 0, true, true, true, true, true, false)
+		got := reduce(in, "full", 0, true, true, true, true, true, false, true)
 		if hasAdjacentArrows(got) {
 			t.Errorf("adjacent arrows for %q: %q", in, got)
 		}
@@ -84,7 +84,7 @@ func TestArrowVisibleAfterReduce(t *testing.T) {
 		"Alpha causes Bravo and therefore Charlie":                  "->",
 	}
 	for in, want := range cases {
-		got := reduce(in, "full", 0, true, true, true, true, true, false)
+		got := reduce(in, "full", 0, true, true, true, true, true, false, true)
 		if !strings.Contains(got, want) {
 			t.Errorf("reduce(%q)=%q want contains %q", in, got, want)
 		}

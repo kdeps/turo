@@ -13,18 +13,19 @@ import (
 
 // proxyConfig holds the reverse-proxy settings.
 type proxyConfig struct {
-	listen    string // host:port to listen on
-	upstream  string // real LLM base URL (e.g. https://api.openai.com)
-	all       bool   // reduce every role, not just user + tool
-	level     string
-	filler    bool
-	synonyms  bool
-	gloss     bool
-	defmatch  bool
-	arrows    bool
-	markdown  bool // keep markdown/HTML structure and reduce only the prose inside it
+	listen   string // host:port to listen on
+	upstream string // real LLM base URL (e.g. https://api.openai.com)
+	all      bool   // reduce every role, not just user + tool
+	level    string
+	filler   bool
+	synonyms bool
+	gloss    bool
+	defmatch bool
+	arrows   bool
+	markdown bool // keep markdown/HTML structure and reduce only the prose inside it
+	special  bool // preserve tokens with special characters (C++, $5, array[0], …)
 	safeMode bool // pass structured content (tool I/O, code/tables/lists) through unreduced
-	verbose   bool // print proxy activity (banner, token summary, before -> after text); off = silent
+	verbose  bool // print proxy activity (banner, token summary, before -> after text); off = silent
 }
 
 // runProxy starts an OpenAI/Anthropic-compatible reverse proxy that runs each
@@ -124,7 +125,7 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 	}
 	before, after := 0, 0
 	red := func(role, s string) string {
-		out := reduce(s, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows, cfg.markdown)
+		out := reduce(s, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows, cfg.markdown, cfg.special)
 		before += estimateTokens(s)
 		after += estimateTokens(out)
 		if cfg.verbose {

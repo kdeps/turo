@@ -91,6 +91,18 @@ turo gain                     # tokens saved so far
 `turo run <agent>` is the everyday driver: it starts an in-process proxy, points
 the agent's base-URL env var at it, and reduces every request — no config, no API
 keys touched. Run `turo run` to list supported agents ([details below](#proxy--reduce-every-request-for-any-agent)).
+
+**Flag order** for `run`: turo flags go *before* `run`, agent flags go *after*
+the agent name — everything after the agent is forwarded as-is:
+
+```bash
+turo [turo-flags] run <agent> [agent-args...]
+
+turo -level ultra -proxy-verbose run claude --dangerously-skip-permissions
+turo -proxy-safe-mode run claude --model sonnet -p "review this PR"
+turo -arrows=false run codex --full-auto
+```
+
 The flags below are for tuning or one-off pipe use.
 
 ## Usage
@@ -104,6 +116,7 @@ turo -synonyms=false              # skip the synonym pass (keep words verbatim)
 turo -gloss=false                 # skip the defining-word swap (less lossy)
 turo -defmatch=false              # keep definition-like phrases (skip the phrase -> headword swap)
 turo -arrows=false                # keep connectives verbatim (skip multi- and single-word -> swaps)
+turo -special=false               # strip specials from tokens (C++/$5/array[0] stay intact by default)
 turo gain                         # estimated tokens saved so far
 turo gain --history               # per-reduction history, newest first
 turo gain --json                  # same totals as JSON for scripts/dashboards
@@ -111,6 +124,7 @@ turo discover                     # tokens turo could save on your Claude Code h
 turo discover --json              # discover totals as JSON
 turo doctor                       # health check: version, settings, paths, agent wiring
 turo --version                    # print version
+turo -level ultra run claude --dangerously-skip-permissions   # turo flags before run; agent args after
 ```
 
 `-gloss` (on by default) replaces each word with the shortest
@@ -142,6 +156,23 @@ README — but a sweep of all 120 stage permutations over mixed corpora puts eve
 gloss-before-synonyms order in the cheapest tier, three tokens ahead of the
 inverse. Arrow and filler placement is free; only the two phrase-then-word
 constraints (defmatch before gloss, gloss before synonyms) cost anything.
+
+`-special` (on by default) preserves whitespace-delimited tokens that contain
+special characters so the reducer cannot strip their punctuation or operators:
+
+```text
+cost is $5.00 (50%)     =>  Cost $5.00 (50%)
+C++ and C# rocks        =>  C++ C# rock
+array[0] and map["k"]   =>  array[0] map["k"]
+x = y + z * 2           =>  X = y + z * 2
+use #hashtag and @user  =>  Use #hashtag @user
+```
+
+Plain words still reduce; only tokens with non-alphanumeric marks (`$`, `%`,
+`[]`, `{}`, operators, `_`, `@`, `#`, unicode symbols, …) are shielded. Single-
+letter non-stopword identifiers (`x`, `y`, `i`) are also kept so expressions
+stay coherent. Disable with `-special=false` / `TURO_SPECIAL=off` for maximum
+compression when symbols do not matter.
 
 `-arrows` (on by default) rewrites causal, sequential, and transformation
 connectives to a single `->` token the reducer keeps between surviving content
@@ -456,6 +487,37 @@ OpenAI-compatible agents, `GROK_CLI_CHAT_PROXY_BASE_URL` for Grok Build), execs
 the agent, and stops the proxy when it exits. One command, no exports, no
 `/turo` inside the agent. Supported: `claude`, `codex`, `opencode`, `qwen`,
 `aider`, `crush`, `goose`, `amp`, `grok`.
+
+#### Passing flags to turo and to the agent
+
+Shape:
+
+```text
+turo [turo-flags] run <agent> [agent-args...]
+```
+
+- **turo flags** (`-level`, `-proxy-verbose`, `-proxy-safe-mode`, `-arrows=false`,
+  …) must come **before** `run`. Go’s flag parser stops at the first non-flag
+  word, so `turo run -level ultra claude` does *not* set the level.
+- **Agent args** are everything after the agent name — forwarded unchanged to
+  the agent binary (Claude Code, Codex, …).
+
+```bash
+# turo: ultra + verbose proxy logs
+# claude: skip its permission prompts
+turo -level ultra -proxy-verbose run claude --dangerously-skip-permissions
+
+# turo: leave tool I/O / code unreduced
+# claude: model + a one-shot prompt
+turo -proxy-safe-mode run claude --model sonnet -p "summarize the diff"
+
+# turo defaults + codex full-auto
+turo run codex --full-auto
+```
+
+`-level`, `-filler`, `-synonyms`, `-gloss`, `-defmatch`, `-arrows`, `-markdown`,
+`-proxy-all`, `-proxy-verbose`, `-proxy-safe-mode`, and `-upstream` all apply to
+`run` the same way they do to `-proxy`.
 
 ### `turo -proxy` — the proxy on its own
 
