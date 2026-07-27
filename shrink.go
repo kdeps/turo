@@ -184,10 +184,173 @@ func hasSentinel(s string) bool { return strings.ContainsRune(s, 0) }
 // reFenceBlock matches a whole fenced code block, used by isStructured.
 var reFenceBlock = regexp.MustCompile("(?s)```.*?```")
 
-// isStructured reports whether text is dominated by code fences, tables, or
-// list/heading markup — layout that prose reduction would scramble. The proxy
-// safe mode uses it to pass such content through verbatim; ordinary prose (even
-// with the odd bullet) still reduces.
+// Machine/shell/code shapes that prose reduction would scramble. Used by
+// isStructured so proxy safe mode can pass tool results through when they look
+// like command output or source, while still reducing prose tool replies.
+var (
+	reANSIEscape = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07`)
+	// Shell / REPL prompts (bash, zsh, fish, PowerShell, Python, Node, SQL, irb).
+	reShellPrompt = regexp.MustCompile(`(?m)^(?:` +
+		`\$ |# |% |>{1,2} |` +
+		`bash-\d[\d.]*[$#] |zsh-\d[\d.]*[$#] |` +
+		`\w+@[\w.-]+:[~\w./\-\\]*[#$%] |` +
+		`(?:PS )?[A-Za-z]:\\[^\n]*> |` + // C:\path>
+		`>>> |\.\.\. |In \[\d+\]: |Out\[\d+\]: |` + // python / ipython
+		`node>|irb\(main\):\d+:\d+[>*] |pry\([^)]+\)> |` +
+		`(?:mysql|postgres|sqlite|redis|mongo)>\s|` +
+		`(?:sql|psql|sqlite3)=\# |\w+=# ` +
+		`)`)
+	// Stack traces across languages.
+	reStackTrace = regexp.MustCompile(`(?m)^(?:` +
+		`Traceback \(most recent call last\)|` +
+		`panic: |goroutine \d+ \[|` +
+		`\s+at [\w.$/<>]+\(|` + // Java / JS "at pkg.Class.method("
+		`\s+at [\w./]+:\d+:\d+|` + // Node "at file:line:col"
+		`^\s+File "[^"]+", line \d+|` +
+		`Caused by: |Exception in thread |` +
+		`thread '\w+' panicked at|` + // Rust
+		`Unhandled Exception: |` + // .NET
+		`#\d+\s+0x[0-9a-fA-F]+ in |` + // lldb/gdb
+		`Fatal error: |PHP Fatal error:` +
+		`)`)
+	reDiffHunk = regexp.MustCompile(`(?m)^(?:--- |\+\+\+ |@@ -\d|diff --git |index [0-9a-f]{7,}\.\.|Binary files .* differ)`)
+	reJSONHeavy = regexp.MustCompile(`^\s*[\[{]`)
+	// path:line or path:line:col (compilers, linters, ripgrep).
+	reFileLineCol = regexp.MustCompile(`(?m)^(?:` +
+		`[\w./+\-@]+(?:\.\w+)?:\d+(?::\d+)?(?::\s|:|$)` + `|` +
+		`[\w./+\-]+\(\d+(?:,\d+)?\):` + `|` + // MSVC path(line,col):
+		`\./[\w./+\-]+:\d+` +
+		`)`)
+	reLogTimestamp = regexp.MustCompile(`(?m)^(?:` +
+		`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}|` +
+		`\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}|` +
+		`\[\d{2}:\d{2}:\d{2}(?:\.\d+)?\]|` +
+		`\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+(?:INFO|WARN|ERROR|DEBUG|TRACE|FATAL)|` +
+		`(?:INFO|WARN|ERROR|DEBUG|TRACE|FATAL)\s+(?:\[[^\]]+\]\s+)?[\w.]+` +
+		`)`)
+	reHexDump = regexp.MustCompile(`(?m)^(?:` +
+		`[0-9a-fA-F]{4,8}(?::|\s{2,})[0-9a-fA-F]{2}(?:\s[0-9a-fA-F]{2}){7,}|` +
+		`0x[0-9a-fA-F]{4,}\s+0x[0-9a-fA-F]+` +
+		`)`)
+	reBase64Block = regexp.MustCompile(`(?m)^[A-Za-z0-9+/]{40,}={0,2}$`)
+	reCompilerDiag = regexp.MustCompile(`(?mi)^(?:` +
+		`error(?:\[E\d+\])?:|warning(?:\[E\d+\])?:|note:|` +
+		`FAIL\b|PASS\b|ok\s+\S+|--- FAIL:|--- PASS:|=== RUN\s+|=== CONT\s+|` +
+		`\# [\w./\-]+|` + // go build package comment
+		`\s*✗ |\s*✓ |\s*√ |\s*× |\s*● |` + // jest / vitest / mocha
+		`\d+ (?:passing|failing|pending|skipped)|` +
+		`Tests?:\s*\d+|Failures?:\s*\d+|` +
+		`FAILED \(errors=|===================== .+ =====================` +
+		`)`)
+	rePathListLine = regexp.MustCompile(`(?m)^(?:` +
+		`(?:[dlcbps\-])(?:[r\-][w\-][xsS\-]){3}[.+@]?\s|` + // ls -l including sticky
+		`total \d+|` +
+		`[0-7]{3,4}\s+\S|` +
+		`[├└│─]+ |` + // tree
+		`\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+[\d.]+\w?\s+\S` + // ls --time-style
+		`)`)
+	reShebangOrCode = regexp.MustCompile(`(?m)^(?:` +
+		`#!/(?:usr/)?bin/\S+|` +
+		`package\s+\w+|func\s+\w+|def\s+\w+|class\s+\w+|async\s+def\s+|` +
+		`import\s+[\w{\"']|from\s+\w[\w.]*\s+import|#include\s*[<"]|` +
+		`(?:public|private|protected)\s+(?:static\s+)?(?:class|void|int|String)|` +
+		`(?:const|let|var)\s+\w+\s*=|` +
+		`fn\s+\w+|impl\s+\w+|use\s+[\w:]+::|` + // Rust
+		`SELECT\s+.+\s+FROM\s+|INSERT\s+INTO\s+|UPDATE\s+\w+\s+SET\s+|DELETE\s+FROM\s+|` +
+		`CREATE\s+(?:TABLE|INDEX|DATABASE)\s+|` +
+		`---\s*$|^\.\.\.\s*$` + // YAML doc markers (also matched per-line)
+		`)`)
+	reCommandEcho = regexp.MustCompile(`(?m)^(?:\+ )?(?:` +
+		`cd|ls|cat|head|tail|grep|rg|find|sed|awk|xargs|chmod|chown|rm|cp|mv|mkdir|touch|` +
+		`git|gh|svn|hg|` +
+		`go|npm|npx|yarn|pnpm|bun|deno|` +
+		`cargo|rustc|pip|pip3|poetry|uv|conda|` +
+		`python|python3|node|ruby|perl|php|java|javac|mvn|gradle|` +
+		`make|cmake|ninja|bazel|` +
+		`docker|docker-compose|podman|kubectl|helm|terraform|pulumi|ansible|` +
+		`curl|wget|http|ssh|scp|rsync|` +
+		`brew|apt|apt-get|yum|dnf|pacman|apk|` +
+		`systemctl|journalctl|service|` +
+		`ps|top|htop|df|du|free|uname|env|export|which|whereis` +
+		`)\s+\S+`)
+	// KEY=value env / dotenv dumps (several lines).
+	reEnvAssign = regexp.MustCompile(`(?m)^(?:export\s+)?[A-Z][A-Z0-9_]{1,64}=`)
+	// HTTP request/response wire dumps.
+	reHTTPDump = regexp.MustCompile(`(?mi)^(?:` +
+		`(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+/\S*\s+HTTP/|` +
+		`HTTP/\d\.\d\s+\d{3}\b|` +
+		`(?:Host|User-Agent|Content-Type|Authorization|Accept|Cookie|Location):\s*\S` +
+		`)`)
+	// HTML/XML tag density helpers.
+	reXMLTag = regexp.MustCompile(`</?[A-Za-z][\w:.-]*(?:\s[^>]*)?>`)
+	// YAML-ish mapping lines (indent + key: value).
+	reYAMLLine = regexp.MustCompile(`(?m)^(?: {2,}|\t+)[\w.-]+:\s+\S`)
+	// CSV / TSV: several commas or tabs per line across lines.
+	reCSVLine = regexp.MustCompile(`(?m)^[^\n]*,[^\n]*,[^\n]*,`)
+	reTSVLine = regexp.MustCompile(`(?m)^[^\n]*\t[^\n]*\t[^\n]*\t`)
+	// Git porcelain / status / log.
+	reGitPorcelain = regexp.MustCompile(`(?m)^(?:` +
+		`(?:M|A|D|R|C|\?\?|!!)\s+\S|` +
+		`commit [0-9a-f]{7,}\b|` +
+		`Author: |Date:\s+|Merge: |` +
+		`Your branch is (?:ahead|behind)|` +
+		`On branch |Changes (?:not )?staged for commit|` +
+		`Untracked files:|new file:\s+|deleted:\s+|modified:\s+` +
+		`)`)
+	// Docker / k8s / cloud resource lines.
+	reContainerLine = regexp.MustCompile(`(?m)^(?:` +
+		`[0-9a-f]{12}\s+\S+|` + // short container id
+		`(?:sha256:)?[0-9a-f]{64}\b|` +
+		`IMAGE\s+ID|CONTAINER\s+ID|REPOSITORY\s+TAG|` +
+		`NAME\s+READY\s+STATUS\s+RESTARTS|` + // kubectl get pods header
+		`(?:pod|svc|deploy|ingress)/[\w.-]+\s|` +
+		`Created resource |Plan: \d+ to add|` + // terraform
+		`Apply complete! |Resources: \d+ added` +
+		`)`)
+	// Process / system tables.
+	reProcTable = regexp.MustCompile(`(?m)^(?:` +
+		`PID\s+(?:TTY|USER|PPID)|` +
+		`USER\s+PID\s+|` +
+		`\d+\s+\d+\s+\d+\.\d+\s+\d+\.\d+\s+\d+\s+\d+\s+|` + // ps aux numeric cols
+		`Filesystem\s+Size\s+Used|` +
+		`Mem:\s+\d+|Swap:\s+\d+|` +
+		`\d+ processes:|\d+ running,` +
+		`)`)
+	// Progress bars / spinners leftovers.
+	reProgressBar = regexp.MustCompile(`(?m)^(?:` +
+		`[█▉▊▋▌▍▎▏\-=#]{8,}|` +
+		`\d{1,3}%\|[^\n]{5,}\|` + // tqdm
+		`Downloading .*\d+%|` +
+		`\[\s*\d+%\]` +
+		`)`)
+	// UUID-heavy or IP:port log noise.
+	reUUID = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
+	reIPv4Port = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}\b`)
+	// SQL result tables / explain.
+	reSQLResult = regexp.MustCompile(`(?mi)^(?:` +
+		`\s*\|\s*\w+\s*\|\s*\w+\s*\||` +
+		`\+[-+]+\+|` + // +---+---+ mysql borders
+		`\(\d+ rows?\)|` +
+		`EXPLAIN\s|Seq Scan |Index Scan |` +
+		`Query OK, \d+ rows?` +
+		`)`)
+	// Protobuf / thrift-ish / GraphQL operation noise.
+	reSchemaIDL = regexp.MustCompile(`(?m)^(?:` +
+		`syntax\s*=\s*"proto\d"|message\s+\w+\s*\{|service\s+\w+\s*\{|` +
+		`type\s+\w+\s*\{|query\s+\w*\s*[\({]|mutation\s+\w*\s*[\({]|` +
+		`enum\s+\w+\s*\{` +
+		`)`)
+	// Certificate / PEM blocks.
+	rePEMBlock = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]+-----`)
+	// TOML / INI section headers.
+	reINISection = regexp.MustCompile(`(?m)^(?:\[[\w.-]+\]|[A-Za-z0-9_.-]+\s*=\s*(?:"[^"]*"|\S+))\s*$`)
+)
+
+// isStructured reports whether text is dominated by layout or machine output
+// that prose reduction would scramble: code fences, tables, lists, shell
+// dumps, stack traces, JSON, diffs, build logs, and similar. Proxy safe mode
+// passes such content through; ordinary prose (including prose tool results)
+// still reduces.
 func isStructured(s string) bool {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -203,6 +366,10 @@ func isStructured(s string) bool {
 			return true
 		}
 	}
+	// Strong single-signal machine shapes (need not be multi-line majority).
+	if isMachineOutput(s) {
+		return true
+	}
 	nonBlank, structural := 0, 0
 	for _, ln := range strings.Split(s, "\n") {
 		t := strings.TrimSpace(ln)
@@ -210,12 +377,210 @@ func isStructured(s string) bool {
 			continue
 		}
 		nonBlank++
-		if isStructuralLine(ln, t) {
+		if isStructuralLine(ln, t) || isMachineLine(t) {
 			structural++
 		}
 	}
-	// Need a few lines, most of them structural, before skipping reduction.
+	// Need a few lines, most of them structural/machine, before skipping.
 	return nonBlank >= 3 && structural*5 >= nonBlank*3 // >= 60%
+}
+
+// isMachineOutput reports strong whole-blob signals of non-prose content.
+func isMachineOutput(s string) bool {
+	if reANSIEscape.MatchString(s) || rePEMBlock.MatchString(s) {
+		return true
+	}
+	// Mostly JSON / JSONL.
+	if reJSONHeavy.MatchString(s) && looksLikeJSON(s) {
+		return true
+	}
+	// Stack traces, panics, diffs: any clear hit is enough.
+	if reStackTrace.MatchString(s) || reDiffHunk.MatchString(s) {
+		return true
+	}
+	if reHTTPDump.MatchString(s) && len(reHTTPDump.FindAllStringIndex(s, -1)) >= 2 {
+		return true
+	}
+	if reSchemaIDL.MatchString(s) {
+		return true
+	}
+	// Shell / REPL transcript.
+	if n := len(reShellPrompt.FindAllStringIndex(s, -1)); n >= 1 && strings.Count(s, "\n") >= 1 {
+		return true
+	}
+	if n := len(reCommandEcho.FindAllStringIndex(s, -1)); n >= 3 {
+		return true
+	}
+	// Build/test/compiler dumps.
+	if n := len(reCompilerDiag.FindAllStringIndex(s, -1)); n >= 3 {
+		return true
+	}
+	if n := len(reFileLineCol.FindAllStringIndex(s, -1)); n >= 2 {
+		return true
+	}
+	if n := len(reGitPorcelain.FindAllStringIndex(s, -1)); n >= 2 {
+		return true
+	}
+	if n := len(reContainerLine.FindAllStringIndex(s, -1)); n >= 2 {
+		return true
+	}
+	if n := len(reProcTable.FindAllStringIndex(s, -1)); n >= 1 && strings.Count(s, "\n") >= 2 {
+		return true
+	}
+	if n := len(reSQLResult.FindAllStringIndex(s, -1)); n >= 2 {
+		return true
+	}
+	if n := len(reEnvAssign.FindAllStringIndex(s, -1)); n >= 5 {
+		return true
+	}
+	if n := len(reYAMLLine.FindAllStringIndex(s, -1)); n >= 5 {
+		return true
+	}
+	if n := len(reINISection.FindAllStringIndex(s, -1)); n >= 5 {
+		return true
+	}
+	if n := len(reCSVLine.FindAllStringIndex(s, -1)); n >= 3 {
+		return true
+	}
+	if n := len(reTSVLine.FindAllStringIndex(s, -1)); n >= 3 {
+		return true
+	}
+	if n := len(reBase64Block.FindAllStringIndex(s, -1)); n >= 2 {
+		return true
+	}
+	if n := len(reProgressBar.FindAllStringIndex(s, -1)); n >= 2 {
+		return true
+	}
+	// UUID / IP:port dense logs.
+	if n := len(reUUID.FindAllStringIndex(s, -1)); n >= 4 {
+		return true
+	}
+	if n := len(reIPv4Port.FindAllStringIndex(s, -1)); n >= 4 {
+		return true
+	}
+	// HTML/XML: many tags relative to length.
+	if tags := reXMLTag.FindAllStringIndex(s, -1); len(tags) >= 5 {
+		tagChars := 0
+		for _, loc := range tags {
+			tagChars += loc[1] - loc[0]
+		}
+		if tagChars*3 >= len(s) { // tags ≥ ~1/3 of bytes
+			return true
+		}
+	}
+	// High non-letter density (hex dumps, binary-ish, minified).
+	if denseNonLetters(s) {
+		return true
+	}
+	if reHexDump.MatchString(s) || (rePathListLine.MatchString(s) && strings.Count(s, "\n") >= 2) {
+		return true
+	}
+	// Source-like blobs spanning multiple lines.
+	if n := len(reShebangOrCode.FindAllStringIndex(s, -1)); n >= 2 && strings.Count(s, "\n") >= 2 {
+		return true
+	}
+	// Log lines with timestamps dominate.
+	if n := len(reLogTimestamp.FindAllStringIndex(s, -1)); n >= 4 {
+		return true
+	}
+	return false
+}
+
+// isMachineLine reports whether a single non-empty line looks like shell, log,
+// path listing, or code rather than prose.
+func isMachineLine(trimmed string) bool {
+	switch {
+	case reShellPrompt.MatchString(trimmed),
+		reCommandEcho.MatchString(trimmed),
+		reFileLineCol.MatchString(trimmed),
+		reLogTimestamp.MatchString(trimmed),
+		reCompilerDiag.MatchString(trimmed),
+		rePathListLine.MatchString(trimmed),
+		reShebangOrCode.MatchString(trimmed),
+		reHexDump.MatchString(trimmed),
+		reBase64Block.MatchString(trimmed),
+		reEnvAssign.MatchString(trimmed),
+		reHTTPDump.MatchString(trimmed),
+		reYAMLLine.MatchString(trimmed),
+		reGitPorcelain.MatchString(trimmed),
+		reContainerLine.MatchString(trimmed),
+		reProcTable.MatchString(trimmed),
+		reProgressBar.MatchString(trimmed),
+		reSQLResult.MatchString(trimmed),
+		reSchemaIDL.MatchString(trimmed),
+		rePEMBlock.MatchString(trimmed),
+		reINISection.MatchString(trimmed),
+		reCSVLine.MatchString(trimmed),
+		reTSVLine.MatchString(trimmed):
+		return true
+	}
+	// JSON line or key-ish assignment dumps.
+	if (strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) &&
+		(strings.Contains(trimmed, `"`) || strings.Contains(trimmed, ":")) {
+		return true
+	}
+	// XML/HTML open/close on its own line.
+	if reXMLTag.MatchString(trimmed) && len(reXMLTag.FindAllString(trimmed, -1)) >= 1 &&
+		len(trimmed) < 200 && strings.Count(trimmed, " ") < 8 {
+		return true
+	}
+	return false
+}
+
+// looksLikeJSON reports a blob that is predominantly JSON rather than prose
+// that merely starts with "{" (e.g. "{see docs}").
+func looksLikeJSON(s string) bool {
+	s = strings.TrimSpace(s)
+	if len(s) < 2 {
+		return false
+	}
+	// Balanced-ish braces/brackets and many quotes/colons.
+	quotes, colons := 0, 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '"':
+			quotes++
+		case ':':
+			colons++
+		}
+	}
+	if quotes >= 4 && colons >= 2 {
+		return true
+	}
+	// JSONL: several lines each starting with { or [
+	lines, jsonLines := 0, 0
+	for _, ln := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(ln)
+		if t == "" {
+			continue
+		}
+		lines++
+		if t[0] == '{' || t[0] == '[' {
+			jsonLines++
+		}
+	}
+	return lines >= 2 && jsonLines*2 >= lines
+}
+
+// denseNonLetters reports text where letters are a minority of non-space runes
+// (minified JSON, hex, base64-ish, heavy punctuation code).
+func denseNonLetters(s string) bool {
+	letters, other, space := 0, 0, 0
+	for _, r := range s {
+		switch {
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			space++
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+			letters++
+		default:
+			other++
+		}
+	}
+	n := letters + other
+	if n < 40 {
+		return false
+	}
+	return other*2 >= n // ≥50% non-letters among non-space
 }
 
 // isStructuralLine reports whether a single line is markdown table/list/heading

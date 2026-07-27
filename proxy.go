@@ -116,14 +116,17 @@ func isChatPath(path string) bool {
 
 // reducePayload reduces the content of eligible messages in an OpenAI/Anthropic
 // (or OpenAI Responses) request body. Returns the rewritten body and estimated
-// before/after token totals of the reduced fields, or nil if the body is not
-// reducible JSON.
+// before/after token totals across every text field the proxy considered —
+// reduced fields contribute their compressed size; safe-mode (and other)
+// passthroughs contribute the same count to both sides so turo gain does not
+// inflate % saved by ignoring unreduced tool I/O and structured blobs.
 func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, 0, 0
 	}
 	before, after := 0, 0
+	// red compresses and counts a field toward both totals.
 	red := func(role, s string) string {
 		out := reduce(s, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows, cfg.markdown, cfg.special)
 		before += estimateTokens(s)
@@ -132,6 +135,16 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 			fmt.Fprintf(os.Stderr, "  [%s] %s\n       -> %s\n", role, proxyPreview(s), proxyPreview(out))
 		}
 		return out
+	}
+	// pass counts text left unreduced (safe-mode skips, ineligible roles) so
+	// gain's tokens-in/out match the full request the upstream still receives.
+	pass := func(s string) {
+		if s == "" {
+			return
+		}
+		n := estimateTokens(s)
+		before += n
+		after += n
 	}
 
 	// True once we see a field the reducer knows how to walk. Without this we
@@ -154,7 +167,7 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 
 	// Chat Completions + Anthropic Messages: top-level messages array.
 	if msgs, ok := payload["messages"].([]any); ok {
-		reduceMessageList(msgs, cfg, red)
+		reduceMessageList(msgs, cfg, red, pass)
 		known = true
 	}
 
@@ -164,11 +177,13 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 		known = true
 		switch v := in.(type) {
 		case string:
-			if shouldReduce("user", cfg.all) && !(cfg.safeMode && isStructured(v)) {
+			if !shouldReduce("user", cfg.all) || (cfg.safeMode && isStructured(v)) {
+				pass(v)
+			} else {
 				payload["input"] = red("user", v)
 			}
 		case []any:
-			reduceMessageList(v, cfg, red)
+			reduceMessageList(v, cfg, red, pass)
 		}
 	}
 
@@ -184,72 +199,148 @@ func reducePayload(body []byte, cfg proxyConfig) ([]byte, int, int) {
 }
 
 // reduceMessageList walks a messages or Responses input array and reduces
-// eligible text fields in place.
-func reduceMessageList(msgs []any, cfg proxyConfig, red func(role, s string) string) {
+// eligible text fields in place. pass is invoked for every text field left
+// unreduced so token accounting stays honest under -proxy-safe-mode.
+//
+// Safe mode is content-shaped, not role-shaped: tool *calls* (JSON args) always
+// pass through, but tool *results* and other text reduce unless isStructured
+// says they look like code, shell dumps, tables, JSON, etc.
+func reduceMessageList(msgs []any, cfg proxyConfig, red func(role, s string) string, pass func(string)) {
 	for _, m := range msgs {
 		mm, ok := m.(map[string]any)
 		if !ok {
 			continue
 		}
-		// Responses tool I/O items use type instead of (or alongside) role.
 		itemType, _ := mm["type"].(string)
-		if cfg.safeMode && isResponsesToolItem(itemType) {
+		// Tool *calls* are JSON/schema machinery — never reduce in safe mode.
+		if cfg.safeMode && isToolCallItem(itemType) {
+			passMessageText(mm, pass)
 			continue
 		}
 		role := responsesRole(mm, itemType)
 		if !shouldReduce(role, cfg.all) {
+			// Ineligible roles still ride to the upstream — count them so
+			// gain % is against the full request, not only reduced roles.
+			passMessageText(mm, pass)
 			continue
 		}
-		// Safe mode: OpenAI tool messages are structured I/O — pass through.
-		if cfg.safeMode && role == "tool" {
-			continue
-		}
-		// Responses function_call_output.output is a string tool result.
-		if s, ok := mm["output"].(string); ok && itemType == "function_call_output" {
-			if !(cfg.safeMode && isStructured(s)) {
-				mm["output"] = red(role, s)
-			}
+		// Responses function_call_output.output / computer_call_output text.
+		if s, ok := mm["output"].(string); ok && isToolResultItem(itemType) {
+			mm["output"] = safeRed(cfg, role, s, red, pass)
 			continue
 		}
 		switch c := mm["content"].(type) {
 		case string:
-			if cfg.safeMode && isStructured(c) {
-				continue
-			}
-			mm["content"] = red(role, c)
+			// tool role, user, assistant — all content-shaped under safe mode.
+			mm["content"] = safeRed(cfg, role, c, red, pass)
 		case []any: // multimodal / Anthropic / Responses content blocks
 			for _, part := range c {
 				pm, ok := part.(map[string]any)
 				if !ok {
 					continue
 				}
-				// Skip structured tool blocks: tool_use args and tool_result
-				// output (web results, file/code reads, TUI dumps).
-				if cfg.safeMode {
-					if bt, _ := pm["type"].(string); bt == "tool_use" || bt == "tool_result" {
-						continue
-					}
+				bt, _ := pm["type"].(string)
+				// tool_use args stay intact; tool_result text is content-shaped.
+				if cfg.safeMode && bt == "tool_use" {
+					passContentPart(pm, pass)
+					continue
+				}
+				if bt == "tool_result" {
+					reduceOrPassContentPart(pm, cfg, role, red, pass)
+					continue
 				}
 				t, ok := contentPartText(pm)
 				if !ok {
+					// Images / nested non-text — count any nested strings only.
+					passContentPart(pm, pass)
 					continue
 				}
-				if cfg.safeMode && isStructured(t) {
-					continue
-				}
-				setContentPartText(pm, red(role, t))
+				setContentPartText(pm, safeRed(cfg, role, t, red, pass))
 			}
 		}
 	}
 }
 
-// isResponsesToolItem reports Responses API item types whose structured
-// payload should pass through unreduced in safe mode.
-func isResponsesToolItem(itemType string) bool {
+// safeRed reduces s unless safe mode is on and the text looks structured
+// (code, shell output, tables, JSON, …). Passthrough still counts toward gain.
+func safeRed(cfg proxyConfig, role, s string, red func(role, s string) string, pass func(string)) string {
+	if cfg.safeMode && isStructured(s) {
+		pass(s)
+		return s
+	}
+	return red(role, s)
+}
+
+// reduceOrPassContentPart walks a content block (including nested tool_result
+// content arrays), reducing prose leaves and passing structured ones.
+func reduceOrPassContentPart(pm map[string]any, cfg proxyConfig, role string, red func(role, s string) string, pass func(string)) {
+	if t, ok := pm["text"].(string); ok {
+		pm["text"] = safeRed(cfg, role, t, red, pass)
+	}
+	switch c := pm["content"].(type) {
+	case string:
+		pm["content"] = safeRed(cfg, role, c, red, pass)
+	case []any:
+		for _, part := range c {
+			if nested, ok := part.(map[string]any); ok {
+				reduceOrPassContentPart(nested, cfg, role, red, pass)
+			}
+		}
+	}
+}
+
+// passMessageText feeds every reducible string on a message/item into pass so
+// safe-mode skips still appear in gain's before/after totals.
+func passMessageText(mm map[string]any, pass func(string)) {
+	if s, ok := mm["output"].(string); ok {
+		pass(s)
+	}
+	switch c := mm["content"].(type) {
+	case string:
+		pass(c)
+	case []any:
+		for _, part := range c {
+			if pm, ok := part.(map[string]any); ok {
+				passContentPart(pm, pass)
+			}
+		}
+	}
+}
+
+// passContentPart walks a content block for text fields (including nested
+// tool_result content arrays) and counts them as unreduced.
+func passContentPart(pm map[string]any, pass func(string)) {
+	if t, ok := pm["text"].(string); ok {
+		pass(t)
+	}
+	switch c := pm["content"].(type) {
+	case string:
+		pass(c)
+	case []any:
+		for _, part := range c {
+			if nested, ok := part.(map[string]any); ok {
+				passContentPart(nested, pass)
+			}
+		}
+	}
+}
+
+// isToolCallItem reports Responses/chat item types that carry call args or
+// tool machinery (not free-text results). Safe mode always leaves these alone.
+func isToolCallItem(itemType string) bool {
 	switch itemType {
-	case "function_call", "function_call_output", "tool_use", "tool_result",
-		"computer_call", "computer_call_output", "file_search_call",
+	case "function_call", "tool_use", "computer_call", "file_search_call",
 		"web_search_call", "code_interpreter_call", "mcp_call", "mcp_list_tools":
+		return true
+	}
+	return false
+}
+
+// isToolResultItem reports item types whose payload is tool *output* text —
+// safe mode decides per-string via isStructured rather than skipping wholesale.
+func isToolResultItem(itemType string) bool {
+	switch itemType {
+	case "function_call_output", "tool_result", "computer_call_output":
 		return true
 	}
 	return false

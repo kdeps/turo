@@ -70,6 +70,24 @@ func TestIsStructured(t *testing.T) {
 		"bullet list":    "Steps:\n- clone the repo\n- run make build\n- ship it\n- celebrate",
 		"numbered list":  "1. first\n2. second\n3. third\n4. fourth",
 		"fenced code":    "```go\nfor i := range xs {\n\ttotal += xs[i]\n}\n```",
+		"bash transcript": "$ go test ./...\nok  \tgithub.com/kdeps/turo\t1.2s\nFAIL\tgithub.com/kdeps/other\t0.1s\n--- FAIL: TestX (0.00s)\n",
+		"stack trace":     "Traceback (most recent call last):\n  File \"app.py\", line 10, in main\n    run()\nValueError: boom\n",
+		"json object":     `{"name": "turo", "version": "1.0.0", "scripts": {"test": "go test"}}`,
+		"unified diff":    "diff --git a/x.go b/x.go\n--- a/x.go\n+++ b/x.go\n@@ -1,3 +1,4 @@\n package main\n+import \"fmt\"\n",
+		"go source":       "package main\n\nfunc main() {\n\tprintln(\"hi\")\n}\n",
+		"python repl":     ">>> import os\n>>> os.getcwd()\n'/Users/joel/Projects/turo'\n",
+		"http dump":       "GET /v1/chat HTTP/1.1\nHost: api.example.com\nContent-Type: application/json\n\nHTTP/1.1 200 OK\n",
+		"env dump":        "PATH=/usr/bin\nHOME=/home/joel\nSHELL=/bin/zsh\nUSER=joel\nLANG=en_US.UTF-8\nTERM=xterm-256color\n",
+		"git status":      "On branch main\nChanges not staged for commit:\n  (use \"git add\"...)\n\tmodified:   main.go\n\nUntracked files:\n  foo.txt\n",
+		"kubectl pods":    "NAME\tREADY\tSTATUS\tRESTARTS\napi-7d9f\t1/1\tRunning\t0\nweb-2abc\t0/1\tCrashLoopBackOff\t3\n",
+		"ls -l":           "total 48\n-rw-r--r--  1 joel  staff  1200 Jul 27 12:00 main.go\ndrwxr-xr-x  5 joel  staff   160 Jul 27 12:00 docs\n",
+		"csv":             "name,age,city,country\nalice,30,paris,fr\nbob,25,berlin,de\ncarol,40,madrid,es\n",
+		"yaml indent":     "services:\n  api:\n    image: api:latest\n    ports:\n      - \"8080:8080\"\n    environment:\n      LOG_LEVEL: debug\n",
+		"jest":            " PASS  src/foo.test.ts\n  ✓ adds numbers (2 ms)\n  ✓ handles null (1 ms)\n\nTest Suites: 1 passed, 1 total\nTests:       2 passed, 2 total\n",
+		"rust panic":      "thread 'main' panicked at 'index out of bounds', src/main.rs:10:5\nnote: run with `RUST_BACKTRACE=1`\n",
+		"pem":             "-----BEGIN CERTIFICATE-----\nMIIBkTCB+wIJAKHBf\n-----END CERTIFICATE-----\n",
+		"mysql table":     "+----+------+\n| id | name |\n+----+------+\n|  1 | ann  |\n+----+------+\n(1 row)\n",
+		"file:line diag":  "main.go:42:3: undefined: foo\nproxy.go:10:1: imported and not used: \"fmt\"\n",
 	}
 	for name, s := range structured {
 		if !isStructured(s) {
@@ -81,6 +99,8 @@ func TestIsStructured(t *testing.T) {
 		"prose one bullet": "We should review the middleware today.\n- and also the expiry check\n" +
 			"then confirm the tests pass before we merge the pull request upstream.",
 		"two short lines": "first line here\nsecond line here",
+		"tool prose reply": "The search found three relevant packages that implement streaming JSON parsers for Go.",
+		"email-ish prose":  "Alice said the deploy looked fine after the timeout fix landed in production yesterday.",
 	}
 	for name, s := range prose {
 		if isStructured(s) {

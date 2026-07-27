@@ -90,7 +90,7 @@ Flags:
 	upstream := flag.String("upstream", envOr("OPENAI_BASE_URL", "https://api.openai.com"), "with -proxy: real LLM base URL")
 	proxyAll := flag.Bool("proxy-all", true, "with -proxy/run: reduce every role (default; -proxy-all=false for user + tool only)")
 	proxyVerbose := flag.Bool("proxy-verbose", false, "with -proxy/run: print proxy activity (token summary + each message's before -> after text); off = silent")
-	proxySafeMode := flag.Bool("proxy-safe-mode", envDefaultOff("TURO_SAFE_MODE"), "with -proxy/run: pass structured content (tool calls, tool results, code/tables/lists) through unreduced (off; enable with -proxy-safe-mode or TURO_SAFE_MODE=on)")
+	proxySafeMode := flag.Bool("proxy-safe-mode", envDefaultOn("TURO_SAFE_MODE"), "with -proxy/run: pass tool-call args and structured text (code, shell dumps, tables, JSON) through unreduced; prose tool results still reduce (on; disable with -proxy-safe-mode=false or TURO_SAFE_MODE=off)")
 	flag.Parse()
 
 	if showVersion {

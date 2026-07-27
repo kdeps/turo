@@ -149,8 +149,9 @@ func TestReducePayloadSafeMode(t *testing.T) {
 		`{"type":"text","text":"` + prose + `"}]}` +
 		`]}`
 
-	// safe mode ON: prose reduces; table, tool role, and tool_result pass through.
-	out, _, _ := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, safeMode: true})
+	// safe mode ON: content-shaped — prose reduces even in tool role / tool_result;
+	// tables and machine dumps pass through.
+	out, beforeOn, afterOn := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, safeMode: true})
 	msgs := payloadMsgs(t, out)
 	if s := msgs[0]["content"].(string); strings.Contains(s, "Please") {
 		t.Errorf("prose user msg should reduce, got %q", s)
@@ -158,26 +159,121 @@ func TestReducePayloadSafeMode(t *testing.T) {
 	if s := msgs[1]["content"].(string); s != table {
 		t.Errorf("markdown table should pass through, got %q", s)
 	}
-	if s := msgs[2]["content"].(string); s != prose {
-		t.Errorf("tool role should pass through, got %q", s)
+	if s := msgs[2]["content"].(string); strings.Contains(s, "Please") {
+		t.Errorf("prose tool role should reduce under smart safe mode, got %q", s)
 	}
 	blocks := msgs[3]["content"].([]any)
 	tr := blocks[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
-	if tr != prose {
-		t.Errorf("tool_result text should pass through, got %q", tr)
+	if strings.Contains(tr, "Please") {
+		t.Errorf("prose tool_result text should reduce, got %q", tr)
 	}
 	if txt := blocks[1].(map[string]any)["text"].(string); strings.Contains(txt, "Please") {
 		t.Errorf("plain text block should reduce, got %q", txt)
 	}
 
-	// safe mode OFF: table and tool role now reduce too.
-	out2, _, _ := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, safeMode: false})
+	// safe mode OFF: table reduces too.
+	out2, beforeOff, afterOff := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, safeMode: false})
 	m2 := payloadMsgs(t, out2)
 	if s := m2[1]["content"].(string); s == table {
 		t.Errorf("with safe mode off, table should reduce, got verbatim %q", s)
 	}
-	if s := m2[2]["content"].(string); s == prose {
-		t.Errorf("with safe mode off, tool role should reduce, got verbatim %q", s)
+
+	// Gain accounting: passthrough fields must still count toward before/after.
+	if beforeOn <= 0 || afterOn <= 0 {
+		t.Fatalf("safe mode gain totals empty: before=%d after=%d", beforeOn, afterOn)
+	}
+	if afterOn > beforeOn {
+		t.Fatalf("safe mode after > before: %d > %d", afterOn, beforeOn)
+	}
+	if beforeOn < beforeOff {
+		t.Errorf("safe mode before=%d should include passthrough tokens (>= off before=%d)", beforeOn, beforeOff)
+	}
+	// Off mode also squeezes the table → more absolute savings.
+	savedOn := beforeOn - afterOn
+	savedOff := beforeOff - afterOff
+	if savedOff < savedOn {
+		t.Errorf("safe mode off should save at least as many tokens: off=%d on=%d", savedOff, savedOn)
+	}
+	if afterOff > afterOn {
+		t.Errorf("safe mode off should not produce more output tokens: off=%d on=%d", afterOff, afterOn)
+	}
+}
+
+// TestReducePayloadSafeModeSmartToolResults checks content-shaped tool I/O:
+// prose tool results reduce; bash / code dumps do not.
+func TestReducePayloadSafeModeSmartToolResults(t *testing.T) {
+	prose := "Please utilize this approach to demonstrate the functionality."
+	bash := "$ go test ./...\nok  \tgithub.com/kdeps/turo\t1.234s\nFAIL\tgithub.com/kdeps/turo/x\t0.100s\n--- FAIL: TestFoo (0.00s)\n"
+	code := "```go\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n```\n"
+	body := `{"model":"x","messages":[` +
+		`{"role":"tool","content":` + jsonStr(prose) + `},` +
+		`{"role":"tool","content":` + jsonStr(bash) + `},` +
+		`{"role":"user","content":[` +
+		`{"type":"tool_result","content":[{"type":"text","text":` + jsonStr(prose) + `}]},` +
+		`{"type":"tool_result","content":[{"type":"text","text":` + jsonStr(code) + `}]}` +
+		`]}` +
+		`]}`
+
+	out, _, _ := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, safeMode: true})
+	msgs := payloadMsgs(t, out)
+	if s := msgs[0]["content"].(string); strings.Contains(s, "Please") {
+		t.Errorf("prose tool content should reduce, got %q", s)
+	}
+	if s := msgs[1]["content"].(string); s != bash {
+		t.Errorf("bash tool dump should pass through, got %q", s)
+	}
+	blocks := msgs[2]["content"].([]any)
+	trProse := blocks[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+	if strings.Contains(trProse, "Please") {
+		t.Errorf("prose tool_result should reduce, got %q", trProse)
+	}
+	trCode := blocks[1].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+	if trCode != code {
+		t.Errorf("fenced code tool_result should pass through, got %q", trCode)
+	}
+}
+
+// TestReducePayloadSafeModeGainCountsPassthrough locks the gain bug where
+// unreduced safe-mode fields were omitted from before/after, making
+// tokens-saved % look far higher than the true request compression.
+func TestReducePayloadSafeModeGainCountsPassthrough(t *testing.T) {
+	// One short reducible user line + one large structured blob that safe
+	// mode leaves alone. If passthrough is ignored, before ≈ short line only
+	// and saved% looks huge; with correct accounting before includes the blob.
+	prose := "Please utilize this approach carefully."
+	blob := strings.Repeat("| colA | colB |\n| --- | --- |\n| value1 | value2 |\n", 40)
+	body := `{"model":"x","messages":[` +
+		`{"role":"user","content":"` + prose + `"},` +
+		`{"role":"tool","content":` + jsonStr(blob) + `}` +
+		`]}`
+
+	cfg := proxyConfig{all: true, level: "full", filler: true, safeMode: true}
+	_, before, after := reducePayload([]byte(body), cfg)
+	proseN := estimateTokens(prose)
+	blobN := estimateTokens(blob)
+	if before < proseN+blobN {
+		t.Fatalf("before=%d want at least prose+blob=%d (passthrough must count)", before, proseN+blobN)
+	}
+	// Blob is unreduced → after includes full blobN; only prose shrinks.
+	if after < blobN {
+		t.Fatalf("after=%d want at least blob=%d", after, blobN)
+	}
+	saved := before - after
+	if saved <= 0 {
+		t.Fatalf("expected some savings on the prose line, saved=%d", saved)
+	}
+	if saved >= blobN {
+		t.Fatalf("saved=%d looks like passthrough was treated as reduced (blob=%d)", saved, blobN)
+	}
+	// Savings must be a small fraction of the full request, not ~70% of prose only.
+	if pct := saved * 100 / before; pct > 40 {
+		t.Fatalf("saved %d%% of full request looks inflated (before=%d after=%d saved=%d)", pct, before, after, saved)
+	}
+
+	// Same payload without safe mode: tool blob reduces, more absolute savings.
+	_, b2, a2 := reducePayload([]byte(body), proxyConfig{all: true, level: "full", filler: true, safeMode: false})
+	if b2-a2 <= saved {
+		t.Fatalf("safe mode off should save more tokens: off=%d on=%d", b2-a2, saved)
 	}
 }
 

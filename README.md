@@ -99,7 +99,7 @@ the agent name — everything after the agent is forwarded as-is:
 turo [turo-flags] run <agent> [agent-args...]
 
 turo -level ultra -proxy-verbose run claude --dangerously-skip-permissions
-turo -proxy-safe-mode run claude --model sonnet -p "review this PR"
+turo -proxy-safe-mode=false run claude --model sonnet -p "review this PR"
 turo -arrows=false run codex --full-auto
 ```
 
@@ -227,6 +227,12 @@ before/after token count to a JSONL log in your OS config dir
 (`~/Library/Application Support/turo/` on macOS, `~/.config/turo/` on Linux;
 override with `TURO_HOME`). `turo gain` totals it up; `turo gain --history` lists
 recent reductions newest-first.
+
+Proxy events count **every** text field the proxy considered: reduced fields
+contribute their compressed size, and fields left unreduced (`-proxy-safe-mode`
+tool I/O / tables / code, or ineligible roles) contribute the same count to
+both sides. That keeps `tokens saved` and the percentage honest against the
+full request — safe mode cannot inflate % by omitting large passthrough blobs.
 
 Counts of 1 000+ print with a magnitude suffix (`k` / `m` / `g` / `t`);
 smaller values stay plain integers.
@@ -496,9 +502,9 @@ Shape:
 turo [turo-flags] run <agent> [agent-args...]
 ```
 
-- **turo flags** (`-level`, `-proxy-verbose`, `-proxy-safe-mode`, `-arrows=false`,
-  …) must come **before** `run`. Go’s flag parser stops at the first non-flag
-  word, so `turo run -level ultra claude` does *not* set the level.
+- **turo flags** (`-level`, `-proxy-verbose`, `-proxy-safe-mode=false`,
+  `-arrows=false`, …) must come **before** `run`. Go’s flag parser stops at the
+  first non-flag word, so `turo run -level ultra claude` does *not* set the level.
 - **Agent args** are everything after the agent name — forwarded unchanged to
   the agent binary (Claude Code, Codex, …).
 
@@ -507,9 +513,9 @@ turo [turo-flags] run <agent> [agent-args...]
 # claude: skip its permission prompts
 turo -level ultra -proxy-verbose run claude --dangerously-skip-permissions
 
-# turo: leave tool I/O / code unreduced
+# turo: also squeeze tool I/O / code (safe mode is on by default)
 # claude: model + a one-shot prompt
-turo -proxy-safe-mode run claude --model sonnet -p "summarize the diff"
+turo -proxy-safe-mode=false run claude --model sonnet -p "summarize the diff"
 
 # turo defaults + codex full-auto
 turo run codex --full-auto
@@ -525,7 +531,7 @@ turo run codex --full-auto
 turo -proxy -upstream https://api.openai.com   # silent by default, listens on 127.0.0.1:8787
 turo -proxy -proxy-verbose                      # print activity: token summary + before -> after text
 turo -proxy -proxy-all=false                    # reduce only user + tool, not every role
-turo -proxy -proxy-safe-mode                    # keep tool I/O + code/tables verbatim (reduced by default)
+turo -proxy -proxy-safe-mode=false             # also reduce tool I/O + code/tables (safe mode on by default)
 export OPENAI_BASE_URL=http://127.0.0.1:8787/v1
 ```
 
@@ -536,12 +542,20 @@ reaches the real endpoint; the response streams back untouched. By default
 reduce only `user` and `tool` content and leave system and assistant history
 verbatim. Auth headers pass through; non-chat paths are forwarded unchanged.
 
-`-proxy-safe-mode` (off by default) keeps structured content out of the reducer:
-OpenAI `tool` messages, Anthropic `tool_use` args and `tool_result` output, and
-any string that reads as structured (code, tables, lists). Tool I/O — web
-results, file/code reads, TUI dumps — is lossier to squeeze and more likely to
-break an agent that parses it, so enabling this streams it through unreduced.
-Turn it on with `-proxy-safe-mode` / `TURO_SAFE_MODE=on`.
+`-proxy-safe-mode` (on by default) is **content-shaped**, not role-shaped:
+
+- **Always pass through** tool *calls* (`tool_use` / `function_call` args and
+  similar machinery) — those are JSON the agent must parse byte-for-byte.
+- **Tool results and other text** (including `role: tool`, `tool_result`,
+  `function_call_output`) are inspected with `isStructured`: prose still
+  reduces; code fences, tables, lists, shell transcripts, stack traces, JSON,
+  diffs, build/test logs, and other machine dumps pass through unreduced.
+
+So a tool reply like “the search found three packages…” squeezes, while
+`$ go test` output and fenced source do not. Disable with
+`-proxy-safe-mode=false` / `TURO_SAFE_MODE=off` to reduce every eligible field
+regardless of shape. Unreduced fields still count toward `turo gain`
+(before = after for those spans) so reported savings reflect the whole request.
 
 Transient upstream failures (`502`, `503`, `504`, `529`) are retried by the proxy
 itself — up to 3 attempts, waiting for the upstream's `Retry-After` when it sends
