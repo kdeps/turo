@@ -7,7 +7,7 @@ import (
 
 // mdReduce runs the full pipeline with markup awareness on, the shipped default.
 func mdReduce(s string) string {
-	return reduce(s, "full", 0, true, true, true, true, true, true)
+	return reduce(s, "full", 0, true, true, true, true, true, true, true)
 }
 
 const mdDoc = "# Getting Started\n" +
@@ -143,7 +143,7 @@ func TestMarkupRestoresLiteralsInPlace(t *testing.T) {
 
 func TestFlatRestoresLiteralsInPlace(t *testing.T) {
 	in := "Read the config at /etc/turo/config.yaml before you restart the running server."
-	got := reduce(in, "full", 0, true, true, true, true, true, false)
+	got := reduce(in, "full", 0, true, true, true, true, true, false, true)
 	const path = "/etc/turo/config.yaml"
 	i := strings.Index(got, path)
 	if i < 0 {
@@ -190,7 +190,9 @@ func TestMarkupNeverLargerAndConverges(t *testing.T) {
 }
 
 func TestMarkupOffFallsBackToFlat(t *testing.T) {
-	flat := reduce(mdDoc, "full", 0, true, true, true, true, true, false)
+	// special=false so table-rule tokens like |------| are not shielded as
+	// specials; this asserts markdown structure itself is not preserved.
+	flat := reduce(mdDoc, "full", 0, true, true, true, true, true, false, false)
 	if strings.Contains(flat, "|------|") {
 		t.Errorf("-markdown=false should not preserve table shape:\n%s", flat)
 	}

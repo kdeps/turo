@@ -6,7 +6,7 @@ import (
 )
 
 func TestParseToGraph_ContentWords(t *testing.T) {
-	got := parseToGraph("the quick brown fox jumps over the lazy dog", "full")
+	got := parseToGraph("the quick brown fox jumps over the lazy dog", "full", true)
 	for _, want := range []string{"quick", "brown", "fox", "jumps", "lazy", "dog"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected content word %q in output, got:\n%s", want, got)
@@ -28,7 +28,7 @@ func TestParseToGraph_ReducesTokens(t *testing.T) {
 	text := "the quick brown fox jumps over the lazy dog"
 	in := estimateTokens(text)
 	for _, level := range []string{"lite", "full", "ultra"} {
-		got := parseToGraph(text, level)
+		got := parseToGraph(text, level, true)
 		if out := estimateTokens(got); out >= in {
 			t.Fatalf("level %s did not reduce tokens: in=%d out=%d\n%s", level, in, out, got)
 		}
@@ -37,9 +37,9 @@ func TestParseToGraph_ReducesTokens(t *testing.T) {
 
 func TestParseToGraph_LevelsDiffer(t *testing.T) {
 	text := "the quick brown fox jumps over the lazy dog"
-	lite := parseToGraph(text, "lite")
-	full := parseToGraph(text, "full")
-	ultra := parseToGraph(text, "ultra")
+	lite := parseToGraph(text, "lite", true)
+	full := parseToGraph(text, "full", true)
+	ultra := parseToGraph(text, "ultra", true)
 	if lite == ultra || full == ultra {
 		t.Fatalf("levels produced identical output:\nlite=%q\nfull=%q\nultra=%q", lite, full, ultra)
 	}
@@ -53,14 +53,150 @@ func TestParseToGraph_PassThroughWhenNotSmaller(t *testing.T) {
 	// Already-terse, content-only input: reduction can't help, so the
 	// original must be returned unchanged rather than something larger.
 	text := "fox jump dog"
-	if got := parseToGraph(text, "full"); got != text {
+	if got := parseToGraph(text, "full", true); got != text {
 		t.Fatalf("expected pass-through of %q, got %q", text, got)
+	}
+}
+
+func TestReduceKeepsNumbers(t *testing.T) {
+	// Single digits used to vanish (min-length 2 filter). Numbers are content.
+	cases := map[string][]string{
+		"defaults to 0":      {"->", "0"},
+		"retry 3 times":      {"3"},
+		"use 2 cores":        {"2"},
+		"set port to 8080":   {"8080"},
+		"value is 42":        {"42"},
+		"timeout of 30":      {"30"},
+		"A equals 0 and 1":   {"0", "1"},
+		"offset is -1 later": {"-1"},
+	}
+	for in, want := range cases {
+		got := reduce(in, "ultra", 0, true, true, true, true, true, false, true)
+		for _, w := range want {
+			if !strings.Contains(got, w) {
+				t.Errorf("reduce(%q)=%q want contains %q", in, got, w)
+			}
+		}
+	}
+	// Single letters still drop outside arrow RHS; only numbers get a blanket exemption.
+	if got := reduce("a I go", "ultra", 0, true, true, true, true, true, false, true); strings.Contains(got, " a ") || strings.HasPrefix(got, "a ") {
+		t.Errorf("single letter a should still drop, got %q", got)
+	}
+}
+
+func TestReduceKeepsArrowRHSShortTokens(t *testing.T) {
+	// "defaults to a" rewrites to "-> a"; the single-letter target must survive
+	// so cleanup does not erase a pure-arrow leftover to "".
+	cases := map[string]string{
+		"defaults to a":      "-> a",
+		"defaults to 0":      "-> 0",
+		"maps to x":          "->",
+		"compiles to a":      "-> a",
+		"falls back to a":    "-> a",
+		"defaults to zero":   "->",
+		"leads to a timeout": "->",
+	}
+	for in, wantSub := range cases {
+		got := reduce(in, "ultra", 0, true, true, true, true, true, false, true)
+		if got == "" {
+			t.Errorf("reduce(%q) empty, want to contain %q", in, wantSub)
+			continue
+		}
+		if !strings.Contains(got, wantSub) {
+			t.Errorf("reduce(%q)=%q want contains %q", in, got, wantSub)
+		}
+	}
+	// Bare article "a" (no arrow) still drops.
+	if got := reduce("use a hammer", "ultra", 0, true, true, true, true, true, false, true); strings.Contains(got, " a") || strings.HasPrefix(got, "a ") {
+		t.Errorf("article a without arrow should drop, got %q", got)
+	}
+}
+
+func TestReduceKeepsArrowTrailingPunct(t *testing.T) {
+	// "defaults to?" rewrites to "->?" — peel the mark off and keep it so
+	// cleanup does not erase a pure-arrow result to "".
+	cases := map[string]string{
+		"defaults to?":   "-> ?",
+		"defaults to ?":  "-> ?",
+		"maps to?":       "-> ?",
+		"leads to?":      "-> ?",
+		"defaults to!":   "-> !",
+		"defaults to a?": "-> a ?",
+		"defaults to 0?": "-> 0 ?",
+	}
+	for in, want := range cases {
+		got := reduce(in, "ultra", 0, true, true, true, true, true, false, true)
+		if got != want {
+			t.Errorf("reduce(%q)=%q want %q", in, got, want)
+		}
+	}
+}
+
+func TestIsNumberToken(t *testing.T) {
+	yes := []string{"0", "9", "42", "8080", "-1", "+2", "3.14", "0.5"}
+	no := []string{"", "-", "+", "x", "3x", "64-bit", "1.2.3", "v2", "ms"}
+	for _, s := range yes {
+		if !isNumberToken(s) {
+			t.Errorf("isNumberToken(%q)=false want true", s)
+		}
+	}
+	for _, s := range no {
+		if isNumberToken(s) {
+			t.Errorf("isNumberToken(%q)=true want false", s)
+		}
+	}
+}
+
+func TestTokenHasSpecial(t *testing.T) {
+	yes := []string{"C++", "C#", "$5.00", "(50%)", "array[0]", "map[\"k\"]", "foo_bar",
+		"user@host", "=>", "=", "+", "72°F", "#tag", "@user", "a.b.c"}
+	no := []string{"hello", "Hello!", "word,", "world.", "the", "fox", ""}
+	for _, s := range yes {
+		if !tokenHasSpecial(s) {
+			t.Errorf("tokenHasSpecial(%q)=false want true", s)
+		}
+	}
+	for _, s := range no {
+		if tokenHasSpecial(s) {
+			t.Errorf("tokenHasSpecial(%q)=true want false", s)
+		}
+	}
+}
+
+func TestReducePreservesSpecialChars(t *testing.T) {
+	// -special is on by default: tokens with specials ride through intact.
+	// Comparisons are case-folded — shrink may capitalize the sentence head.
+	cases := map[string][]string{
+		"cost is $5.00 (50%)":    {"$5.00", "(50%)"},
+		"C++ and C# rocks":       {"C++", "C#"},
+		`array[0] and map["k"]`:  {"array[0]", `map["k"]`},
+		"x = y + z * 2":          {"x", "=", "y", "+", "z", "*", "2"},
+		"use #hashtag and @user": {"#hashtag", "@user"},
+		"a -> b => c":            {"->", "b", "=>", "c"},
+		"temp is 72°F":           {"72°f"}, // lemma/case may fold the unit
+	}
+	for in, want := range cases {
+		got := reduce(in, "ultra", 0, true, true, true, true, true, false, true)
+		gotFold := strings.ToLower(got)
+		for _, w := range want {
+			if !strings.Contains(gotFold, strings.ToLower(w)) && !strings.Contains(got, w) {
+				t.Errorf("special on: reduce(%q)=%q want contains %q", in, got, w)
+			}
+		}
+	}
+	// Opt out: brackets and bare operators are stripped again.
+	off := reduce(`array[0] and x = y`, "ultra", 0, true, true, true, true, true, false, false)
+	if strings.Contains(off, "array[0]") {
+		t.Errorf("special=false should strip brackets from array[0], got %q", off)
+	}
+	if strings.Contains(off, "=") {
+		t.Errorf("special=false should drop bare =, got %q", off)
 	}
 }
 
 func TestExtractStructure_HeadingsAndPaths(t *testing.T) {
 	md := "# Title\n\nSome intro text here.\n\n## Section\n\nSee `pkg/agent/loop.go` for details.\n"
-	got := extractStructure(md, "full")
+	got := extractStructure(md, "full", true)
 	if !strings.Contains(got, "Title") || !strings.Contains(got, "Section") {
 		t.Fatalf("expected headings preserved, got:\n%s", got)
 	}
@@ -189,20 +325,20 @@ func TestReduceMultiPass(t *testing.T) {
 	// Structured text repeats words across sections; a second pass flattens
 	// and dedupes, so more passes never yield a larger result.
 	txt := "# Server\nthe server handles the request quickly\n# Client\nthe client sends the request to the server\n"
-	one := estimateTokens(reduce(txt, "full", 1, true, true, false, false, false, false))
-	four := estimateTokens(reduce(txt, "full", 4, true, true, false, false, false, false))
+	one := estimateTokens(reduce(txt, "full", 1, true, true, false, false, false, false, true))
+	four := estimateTokens(reduce(txt, "full", 4, true, true, false, false, false, false, true))
 	if four > one {
 		t.Fatalf("multi-pass larger than single: 1=%d 4=%d", one, four)
 	}
 
 	// passes <= 0 runs to convergence; the result must be a fixpoint.
-	conv := reduce(txt, "ultra", 0, true, true, false, false, false, false)
-	if again := reduce(conv, "ultra", 0, true, true, false, false, false, false); again != conv {
+	conv := reduce(txt, "ultra", 0, true, true, false, false, false, false, true)
+	if again := reduce(conv, "ultra", 0, true, true, false, false, false, false, true); again != conv {
 		t.Fatalf("convergence not stable:\n%q\n%q", conv, again)
 	}
 
 	// Convergence is at least as aggressive as a single pass.
-	if estimateTokens(conv) > estimateTokens(reduce(txt, "ultra", 1, true, true, false, false, false, false)) {
+	if estimateTokens(conv) > estimateTokens(reduce(txt, "ultra", 1, true, true, false, false, false, false, true)) {
 		t.Fatal("converged output larger than a single pass")
 	}
 }
@@ -222,12 +358,12 @@ func TestApplyArrows(t *testing.T) {
 func TestReduceArrowsOptIn(t *testing.T) {
 	in := "A cache miss leads to a slow query which produces a timeout"
 	// Off by default: no arrow.
-	off := reduce(in, "full", 0, true, false, false, false, false, false)
+	off := reduce(in, "full", 0, true, false, false, false, false, false, true)
 	if strings.Contains(off, "->") {
 		t.Fatalf("arrows must be off by default: %q", off)
 	}
 	// On: arrow survives the reduction and sits between content words.
-	on := reduce(in, "full", 0, true, false, false, false, true, false)
+	on := reduce(in, "full", 0, true, false, false, false, true, false, true)
 	if !strings.Contains(on, "->") {
 		t.Fatalf("expected arrow in reduced output: %q", on)
 	}
@@ -400,14 +536,14 @@ func TestArrowSeesPostStageChanges(t *testing.T) {
 	// Arrows re-run after every stage so connectives left or revealed mid-pass
 	// still become "->". Use multi-letter nouns so reduction does not drop them.
 	in := "Alpha causes Bravo and therefore Charlie"
-	got := reduce(in, "full", 1, true, false, false, false, true, false)
+	got := reduce(in, "full", 1, true, false, false, false, true, false, true)
 	if strings.Count(got, "->") < 1 {
 		t.Fatalf("expected arrows in reduced output, got %q", got)
 	}
 
 	// Filler removes "really"; arrow pass after filler still sees "leads to".
 	in = "Alpha really leads to Bravo"
-	got = reduce(in, "full", 1, true, false, false, false, true, false)
+	got = reduce(in, "full", 1, true, false, false, false, true, false, true)
 	if !strings.Contains(got, "->") {
 		t.Fatalf("arrows should see post-filler text, got %q", got)
 	}
@@ -474,7 +610,7 @@ func TestWenyanBaseLevel(t *testing.T) {
 }
 
 func TestReduceWenyanSwapsAndKeepsCode(t *testing.T) {
-	got := reduce("The wise king studies pkg/x/y.go", "wenyan", 0, true, false, false, false, false, false)
+	got := reduce("The wise king studies pkg/x/y.go", "wenyan", 0, true, false, false, false, false, false, true)
 	if !strings.Contains(got, "智") || !strings.Contains(got, "王") {
 		t.Fatalf("expected wenyan chars in %q", got)
 	}
@@ -485,7 +621,7 @@ func TestReduceWenyanSwapsAndKeepsCode(t *testing.T) {
 
 func TestReducePreservesLiterals(t *testing.T) {
 	in := "See https://example.com/a/b?q=1 and pkg/agent/loop.go, then run `make build` at version 1.2.3."
-	got := reduce(in, "ultra", 0, true, true, true, false, false, false)
+	got := reduce(in, "ultra", 0, true, true, true, false, false, false, true)
 	for _, lit := range []string{
 		"https://example.com/a/b?q=1", "pkg/agent/loop.go", "`make build`", "1.2.3",
 	} {
@@ -507,7 +643,7 @@ func TestReducePreservesFileNamesAndPaths(t *testing.T) {
 	in := "First open main.go and README.md, then read /Users/joel/Projects/turo/shrink.go " +
 		"and ~/.claude/CLAUDE.md while CLAUDE_CONFIG_DIR is set. Run `git status` before the block:\n" +
 		fence + "\nThat is the whole boring plan you should carefully follow."
-	got := reduce(in, "ultra", 0, true, true, true, false, true, false)
+	got := reduce(in, "ultra", 0, true, true, true, false, true, false, true)
 	for _, lit := range []string{
 		"main.go", "README.md",
 		"/Users/joel/Projects/turo/shrink.go", "~/.claude/CLAUDE.md",
@@ -524,7 +660,7 @@ func TestReducePreservesFileNamesAndPaths(t *testing.T) {
 
 func TestParseToGraph_UltraLemmaDedup(t *testing.T) {
 	// Every inflection of go/fox/run collapses to one token each.
-	got := parseToGraph("the fox goes and the fox went and foxes run while it ran", "ultra")
+	got := parseToGraph("the fox goes and the fox went and foxes run while it ran", "ultra", true)
 	if got != "fox go run" {
 		t.Fatalf("expected lemma-deduped %q, got %q", "fox go run", got)
 	}

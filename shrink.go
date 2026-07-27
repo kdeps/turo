@@ -73,6 +73,58 @@ func protectWith(text string, patterns []*regexp.Regexp) (stripped string, liter
 	return work, literals
 }
 
+// reSpecialToken matches a non-space run. Used by protectSpecialTokens to scan
+// candidates; only tokens that actually contain special characters are shielded.
+var reSpecialToken = regexp.MustCompile(`\S+`)
+
+// tokenHasSpecial reports whether tok should be protected under -special: after
+// stripping common outer sentence punctuation, something non-alphanumeric remains
+// (C++, $5.00, array[0], 50%, user@host, =, =>, foo_bar, 72°F, …). Pure words
+// and trailing-comma/period noise stay unprotected so they can still reduce.
+func tokenHasSpecial(tok string) bool {
+	if tok == "" || hasSentinel(tok) {
+		return false
+	}
+	core := strings.Trim(tok, ",.;:!?\"'`")
+	if core == "" {
+		return false
+	}
+	for _, r := range core {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// protectSpecialTokens shields whitespace-delimited tokens that contain special
+// characters so the reduction pipeline cannot strip brackets, operators, sigils,
+// or other non-letter marks. Appends to an existing literals table so prior
+// URL/code sentinels stay valid. On by default via -special / TURO_SPECIAL.
+func protectSpecialTokens(text string, literals []string) (string, []string) {
+	if text == "" {
+		return text, literals
+	}
+	index := map[string]int{}
+	for i, lit := range literals {
+		index[lit] = i
+	}
+	work := reSpecialToken.ReplaceAllStringFunc(text, func(m string) string {
+		if !tokenHasSpecial(m) {
+			return m
+		}
+		i, ok := index[m]
+		if !ok {
+			i = len(literals)
+			index[m] = i
+			literals = append(literals, m)
+		}
+		return sentinelFor(i)
+	})
+	return work, literals
+}
+
 // sentinelFor renders the placeholder for literal i. NUL bytes never occur in
 // prose, so the marker can never collide with a bare integer in the text.
 func sentinelFor(i int) string { return "\x00" + strconv.Itoa(i) + "\x00" }
@@ -217,13 +269,64 @@ func shrinkProse(text string) string {
 	return out
 }
 
+// stripArticles drops a/an/the, except when the article is the sole (or
+// punct-only) right-hand side of an arrow: "-> a" / "-> a ?" must keep "a"
+// (from "defaults to a" / "defaults to a?"), while "-> a timeout" still drops
+// it so the real noun remains.
+func stripArticles(s string) string {
+	if s == "" {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	last := 0
+	for _, loc := range reArticles.FindAllStringIndex(s, -1) {
+		start, end := loc[0], loc[1]
+		b.WriteString(s[last:start])
+		if keepArticleAfterArrow(s, start, end) {
+			b.WriteString(s[start:end])
+		}
+		last = end
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
+
+func keepArticleAfterArrow(s string, start, end int) bool {
+	// Must sit right after "->" or "-> ".
+	afterArrow := false
+	if start >= 3 && s[start-3:start] == "-> " {
+		afterArrow = true
+	} else if start >= 2 && s[start-2:start] == "->" {
+		afterArrow = true
+	}
+	if !afterArrow {
+		return false
+	}
+	rest := strings.TrimSpace(s[end:])
+	if rest == "" {
+		return true
+	}
+	// Keep when only ? / ! (or more of them) follow — no content word yet.
+	for _, r := range rest {
+		if r == '?' || r == '!' {
+			continue
+		}
+		if r == ' ' || r == '\t' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func compressProse(text string) string {
 	s := text
 	s = reLeaders.ReplaceAllString(s, "")
 	s = rePleasantries.ReplaceAllString(s, "")
 	s = reHedges.ReplaceAllString(s, "")
 	s = reFillers.ReplaceAllString(s, "")
-	s = reArticles.ReplaceAllString(s, "")
+	s = stripArticles(s)
 	s = reMultiSpace.ReplaceAllString(s, " ")
 	s = reSpacePunct.ReplaceAllString(s, "$1")
 	s = reTripleBlank.ReplaceAllString(s, "\n\n")

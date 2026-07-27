@@ -10,7 +10,8 @@
 //	cat CLAUDE.md | turo              reduce text to content words
 //	turo file.md                      same, from file
 //	turo -proxy                       reverse proxy that reduces LLM requests
-//	turo run <agent>                  launch an agent with requests reduced
+//	turo [flags] run <agent> [args]   launch an agent with requests reduced
+//	                                  (turo flags before "run"; agent args after the name)
 //	turo gain [--history] [--json]    report estimated tokens saved so far
 //	turo discover [--json]            estimate tokens turo could save on your Claude Code history
 //	turo --version                    print version
@@ -44,6 +45,7 @@ func main() {
 		defmatch    bool
 		arrows      bool
 		markdown    bool
+		special     bool
 		showVersion bool
 	)
 
@@ -51,15 +53,18 @@ func main() {
 		_, _ = fmt.Fprint(flag.CommandLine.Output(), `turo — reduce text to fewer tokens.
 
 Usage:
-  turo [flags] [file]         reduce a file (or stdin) to content words
-  turo -proxy [flags]         reverse proxy that reduces every LLM request
-  turo run <agent> [flags]    launch a coding agent with requests reduced
-  turo run                    list run targets and their flags
-  turo gain [--history]       report estimated tokens saved so far
-  turo discover               estimate tokens turo could save on your Claude Code history
-  turo doctor                 health check: version, settings, paths, agent wiring
-  turo -install-agents        register the turo skill with coding agents
-  turo -list-agents           list supported coding agents
+  turo [flags] [file]              reduce a file (or stdin) to content words
+  turo -proxy [flags]              reverse proxy that reduces every LLM request
+  turo [flags] run <agent> [args]  launch a coding agent with requests reduced
+  turo run                         list run targets and their flags
+  turo gain [--history]            report estimated tokens saved so far
+  turo discover                    estimate tokens turo could save on your Claude Code history
+  turo doctor                      health check: version, settings, paths, agent wiring
+  turo -install-agents             register the turo skill with coding agents
+  turo -list-agents                list supported coding agents
+
+  turo flags go before "run"; agent args go after the agent name:
+    turo -level ultra -proxy-verbose run claude --dangerously-skip-permissions
 
 Flags:
 `)
@@ -74,6 +79,7 @@ Flags:
 	flag.BoolVar(&defmatch, "defmatch", envDefaultOn("TURO_DEFMATCH"), "replace a definition-like phrase with the word it defines (a person who writes professionally -> author) (on; disable with -defmatch=false or TURO_DEFMATCH=off)")
 	flag.BoolVar(&arrows, "arrows", envDefaultOn("TURO_ARROWS"), "replace causal/sequential/transformation connectives with -> (multi-word and single-word; re-run after every stage; disable with -arrows=false or TURO_ARROWS=off)")
 	flag.BoolVar(&markdown, "markdown", envDefaultOn("TURO_MARKDOWN"), "keep markdown/HTML structure (headings, lists, tables, fences, tags) and reduce only the prose inside it (on; disable with -markdown=false or TURO_MARKDOWN=off)")
+	flag.BoolVar(&special, "special", envDefaultOn("TURO_SPECIAL"), "preserve tokens that contain special characters (C++, $5, array[0], 50%, user@host, operators) (on; disable with -special=false or TURO_SPECIAL=off)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	var installAll bool
 	installAgentsFlag := flag.Bool("install-agents", false, "register the turo skill with detected coding agents, then exit")
@@ -112,7 +118,7 @@ Flags:
 	// an invalid level itself rather than exiting with the generic error.
 	if flag.Arg(0) == "doctor" {
 		showDoctor(proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, markdown: markdown, safeMode: *proxySafeMode,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, markdown: markdown, special: special, safeMode: *proxySafeMode,
 		})
 		return
 	}
@@ -126,7 +132,7 @@ Flags:
 	// turo would have saved on sessions that ran without it.
 	if flag.Arg(0) == "discover" {
 		showDiscover(proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, markdown: markdown, safeMode: *proxySafeMode,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, markdown: markdown, special: special, safeMode: *proxySafeMode,
 		}, hasSubFlag("json"))
 		return
 	}
@@ -149,7 +155,7 @@ Flags:
 			override = *upstream
 		}
 		err := runAgent(flag.Arg(1), flag.Args()[2:], override, proxyConfig{
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, markdown: markdown, safeMode: *proxySafeMode,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, markdown: markdown, special: special, safeMode: *proxySafeMode,
 			verbose: *proxyVerbose,
 		})
 		// Print turo's own setup errors; an agent that exits non-zero already
@@ -164,7 +170,7 @@ Flags:
 	if *proxyFlag {
 		err := runProxy(proxyConfig{
 			listen: *listen, upstream: strings.TrimSuffix(*upstream, "/v1"),
-			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, markdown: markdown, safeMode: *proxySafeMode,
+			all: *proxyAll, level: level, filler: filler, synonyms: synonyms, gloss: gloss, defmatch: defmatch, arrows: arrows, markdown: markdown, special: special, safeMode: *proxySafeMode,
 			verbose: *proxyVerbose,
 		})
 		if err != nil {
@@ -180,7 +186,7 @@ Flags:
 		os.Exit(1)
 	}
 
-	out := reduce(input, level, passes, filler, synonyms, gloss, defmatch, arrows, markdown)
+	out := reduce(input, level, passes, filler, synonyms, gloss, defmatch, arrows, markdown, special)
 	recordGain("reduce", estimateTokens(input), estimateTokens(out))
 	fmt.Print(out)
 }
@@ -193,10 +199,10 @@ const maxConvergePasses = 100
 // input looks like markup, it walks the document block by block so headings,
 // lists, tables, fences, and HTML survive; otherwise the whole input is treated
 // as flat prose.
-func reduce(text, level string, passes int, filler, synonyms, gloss, defmatch, arrows, markdown bool) string {
+func reduce(text, level string, passes int, filler, synonyms, gloss, defmatch, arrows, markdown, special bool) string {
 	opts := reduceOpts{
 		level: level, passes: passes, filler: filler, synonyms: synonyms,
-		gloss: gloss, defmatch: defmatch, arrows: arrows,
+		gloss: gloss, defmatch: defmatch, arrows: arrows, special: special,
 	}
 	if markdown && looksLikeMarkup(text) {
 		return reduceMarkup(text, opts)
@@ -207,9 +213,9 @@ func reduce(text, level string, passes int, filler, synonyms, gloss, defmatch, a
 // reduceOpts carries the per-stage switches through the block walker so the
 // markup path and the flat path stay in step.
 type reduceOpts struct {
-	level                                     string
-	passes                                    int
-	filler, synonyms, gloss, defmatch, arrows bool
+	level                                              string
+	passes                                             int
+	filler, synonyms, gloss, defmatch, arrows, special bool
 }
 
 // reduceFlat runs the three-stage pipeline (filler -> synonyms -> reduce)
@@ -229,6 +235,10 @@ func reduceFlat(text string, o reduceOpts, patterns []*regexp.Regexp) string {
 	// pipeline shreds anything with non-letter characters — leave numeric
 	// camp; ride the swaps back into place afterwards.
 	stripped, literals := protectWith(text, patterns)
+	if o.special {
+		// Shield $5, C++, array[0], 50%, operators, … so specials survive.
+		stripped, literals = protectSpecialTokens(stripped, literals)
+	}
 
 	limit := o.passes
 	if limit <= 0 {
@@ -277,8 +287,8 @@ func reduceFlat(text string, o reduceOpts, patterns []*regexp.Regexp) string {
 			// — re-swap would walk a fresh headword back.
 			step = arrow(swapWordsExcept(step, shorterSynonym, headwords))
 		}
-		step = parseToGraph(step, level) // content-word reduction
-		step = arrow(step)               // catch anything reduction left bare
+		step = parseToGraph(step, level, o.special) // content-word reduction
+		step = arrow(step)                          // catch anything reduction left bare
 		if step == out {
 			break // fixpoint — later passes cannot help
 		}
@@ -894,6 +904,15 @@ func applyArrows(text string) string {
 	return b.String()
 }
 
+// reArrowGluedPunct peels "?" / "!" stuck to an arrow after in-place phrase
+// rewrite ("defaults to?" -> "->?"). Spaced form is required so parseToGraph
+// does not reject "-> ?" as larger than "->?" and pass the glued form through.
+var reArrowGluedPunct = regexp.MustCompile(`->([?!]+)`)
+
+// reWordGluedPunct peels "?" / "!" stuck to an alnum token ("a?", "0?") for
+// the same reason — otherwise parseToGraph keeps the glued form as "smaller".
+var reWordGluedPunct = regexp.MustCompile(`([A-Za-z0-9_]+)([?!]+)`)
+
 // cleanupArrows removes dangling arrows: repeated runs and stopword-only gaps
 // collapse to one "->", and a leading or trailing arrow (nothing on one side)
 // is dropped. Idempotent — safe to call after every applyArrows.
@@ -901,6 +920,9 @@ func cleanupArrows(s string) string {
 	if s == "" {
 		return s
 	}
+	// "defaults to?" -> "->?"; "defaults to a?" -> "-> a?" — space the marks.
+	s = reArrowGluedPunct.ReplaceAllString(s, "-> $1")
+	s = reWordGluedPunct.ReplaceAllString(s, "$1 $2")
 	// Collapse adjacent runs ("-> -> ->") and stopword-only gaps ("-> and ->").
 	// Loop to fixpoint so mixed debris settles in one call.
 	prev := ""
@@ -1017,10 +1039,12 @@ func readInput() (string, error) {
 // parseToGraph reduces text at the given compression level. It never returns
 // something larger than the input: if the reduced form does not save tokens
 // (estimated), the original text is passed through unchanged.
-func parseToGraph(text string, level string) string {
-	out := extractStructure(text, level)
+// special keeps single-letter non-stopword identifiers (x, y, i) so operator
+// expressions like "x = y + 2" do not collapse when -special is on.
+func parseToGraph(text string, level string, special bool) string {
+	out := extractStructure(text, level, special)
 	if out == "" {
-		out = extractTermGraph(text, level)
+		out = extractTermGraph(text, level, special)
 	}
 	if out == "" || !smaller(out, text) {
 		return text
@@ -1100,7 +1124,7 @@ func isNoiseLine(line string) bool {
 	return len(line) > 3 && alpha < len(line)/3
 }
 
-func extractStructure(text string, level string) string {
+func extractStructure(text string, level string, special bool) string {
 	scanner := bufio.NewScanner(strings.NewReader(text))
 	var sections []section
 	var cur *section
@@ -1146,7 +1170,7 @@ func extractStructure(text string, level string) string {
 		}
 		if len(s.body) > 0 {
 			bodyText := strings.Join(s.body, " ")
-			bodyGraph := extractTermGraph(bodyText, level)
+			bodyGraph := extractTermGraph(bodyText, level, special)
 			for _, line := range strings.Split(strings.TrimSpace(bodyGraph), "\n") {
 				if line != "" {
 					fmt.Fprintf(&sb, "%s  %s\n", indent, line)
@@ -1421,46 +1445,168 @@ func keepClass(level, class string) bool {
 	}
 }
 
+// isNumberToken reports whether s is an integer or simple decimal (optional
+// leading +/−). Single digits count — "0", "2", "3" are content, not noise.
+func isNumberToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	i := 0
+	if s[0] == '+' || s[0] == '-' {
+		if len(s) == 1 {
+			return false
+		}
+		i = 1
+	}
+	digits, dots := 0, 0
+	for ; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '0' && c <= '9':
+			digits++
+		case c == '.':
+			dots++
+			if dots > 1 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return digits > 0
+}
+
+// graphFields splits text for the term graph. Whitespace and clause
+// punctuation separate tokens; "?" and "!" are kept as their own tokens so
+// "defaults to?" becomes "-> ?" instead of a pure-arrow leftover that cleanup
+// erases. Glued forms like "->?" (arrow rewrite + trailing punct) are split.
+func graphFields(text string) []string {
+	var fields []string
+	var b strings.Builder
+	flush := func() {
+		if b.Len() == 0 {
+			return
+		}
+		fields = append(fields, b.String())
+		b.Reset()
+	}
+	for _, r := range text {
+		switch r {
+		case ' ', '\t', '\n', '\r', ',', ';', ':', '.':
+			flush()
+		case '?', '!':
+			flush()
+			fields = append(fields, string(r))
+		default:
+			b.WriteRune(r)
+		}
+	}
+	flush()
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		// applyArrows replaces the phrase in place, so "defaults to?" becomes
+		// "->?" with the mark stuck on the arrow — peel it off.
+		if len(f) > 2 && strings.HasPrefix(f, "->") {
+			out = append(out, "->")
+			rest := f[2:]
+			if rest != "" {
+				out = append(out, rest)
+			}
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
 // extractTermGraph reduces free-form text to a space-joined stream of
 // deduplicated content words in reading order. No arrows, no emoji, no
 // repeated nodes — those all cost tokens. Stopwords are dropped; the surviving
 // words carry the meaning. ultra additionally drops adjectives and dedupes by
 // lemma so "runs", "running", and "ran" all collapse to one token.
-func extractTermGraph(text string, level string) string {
-	fields := strings.FieldsFunc(text, func(r rune) bool {
-		return r == '.' || r == '!' || r == '?' || r == '\n' || r == '\t' ||
-			r == ' ' || r == ',' || r == ';' || r == ':'
-	})
+//
+// The token immediately after "->" is always kept (even a single letter or
+// stopword): "defaults to a" / "defaults to 0" must surface as "-> a" / "-> 0",
+// not collapse to empty after the min-length and stopword filters.
+//
+// special (from -special, default on): keep single-letter non-stopword
+// identifiers so expressions like "x = y + 2" retain their variables once
+// operators have been protected as literals.
+func extractTermGraph(text string, level string, special bool) string {
+	fields := graphFields(text)
 
 	seen := make(map[string]bool)
 	var out []string
+	afterArrow := false
 	for _, w := range fields {
 		if w == "->" { // arrow connective (from applyArrows): keep verbatim
 			// collapse stacked arrows from mid-pass rewrites ("-> -> ->")
 			if len(out) > 0 && out[len(out)-1] == "->" {
+				afterArrow = true
 				continue
 			}
 			out = append(out, "->")
+			afterArrow = true
+			continue
+		}
+		// Bare ? / ! are content after an arrow rewrite ("defaults to?" -> "-> ?")
+		// and meaningful elsewhere (questions/exclamations). Keep one of each.
+		if w == "?" || w == "!" {
+			if !seen[w] {
+				seen[w] = true
+				out = append(out, w)
+			}
+			afterArrow = false
 			continue
 		}
 		if hasSentinel(w) { // protected literal: keep verbatim, never dedup or lemmatize
 			out = append(out, w)
+			afterArrow = false
+			continue
+		}
+		// Trim wrappers but keep a leading sign on bare numbers ("-1", "+2")
+		// so the min-length filter does not see "1" and the sign is not lost.
+		trimmed := strings.Trim(w, ",;:.!?\"'()[]{}\\`*~|<>—–")
+		if isNumberToken(trimmed) {
+			if !seen[trimmed] {
+				seen[trimmed] = true
+				out = append(out, trimmed)
+			}
+			afterArrow = false
 			continue
 		}
 		lower := strings.ToLower(strings.Trim(w, ",;:.!?\"'()[]{}\\`*~|<>—–-"))
 		lower = strings.ReplaceAll(lower, "'", "")
-		if len(lower) < 2 || stopWords[lower] || isAllPunct(lower) {
+		rhs := afterArrow
+		afterArrow = false
+		if lower == "" || isAllPunct(lower) {
 			continue
 		}
-		if level == "ultra" && ultraStopWords[lower] {
-			continue
-		}
-		if !keepClass(level, classify(lower)) {
-			continue
+		// Arrow RHS: keep even single-letter / stopword targets ("-> a").
+		// Elsewhere: min length 2 drops short noise; with -special, min length
+		// 1 keeps identifiers (x, y, i) while stopwords (a) still drop.
+		if !rhs {
+			minLen := 2
+			if special {
+				minLen = 1
+			}
+			if len(lower) < minLen || stopWords[lower] || (level == "ultra" && ultraStopWords[lower]) {
+				continue
+			}
+			if !keepClass(level, classify(lower)) {
+				continue
+			}
+		} else if len(lower) >= 2 && !stopWords[lower] && !(level == "ultra" && ultraStopWords[lower]) {
+			// Normal multi-letter content after an arrow still goes through POS.
+			if !keepClass(level, classify(lower)) {
+				continue
+			}
 		}
 		key := lower
-		if level == "ultra" {
+		if !rhs && level == "ultra" {
 			key = lemma(lower) // collapse inflections in the most aggressive mode
+		} else if rhs && len(lower) >= 2 && level == "ultra" && !stopWords[lower] {
+			key = lemma(lower)
 		}
 		if seen[key] {
 			continue

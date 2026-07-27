@@ -95,14 +95,21 @@ func listRunTargets() {
 		}
 		fmt.Printf("  [%s] turo run %s\n", mark, id)
 	}
-	fmt.Println("\nFlags (before the agent name):")
+	fmt.Println("\nShape:  turo [turo-flags] run <agent> [agent-args...]")
+	fmt.Println("  turo flags BEFORE \"run\"; agent args AFTER the agent name (forwarded as-is).")
+	fmt.Println("\nTuro flags (before run):")
 	fmt.Println("  -level lite|full|ultra|wenyan   compression level")
 	fmt.Println("  -filler/-synonyms/-gloss=false  disable a reduction stage")
-	fmt.Println("  -arrows                         connective phrases -> \"->\"")
+	fmt.Println("  -arrows=false                   keep connectives verbatim")
+	fmt.Println("  -special=false                  strip specials (C++/$5/array[0] kept by default)")
 	fmt.Println("  -proxy-all=false                reduce only user + tool (default: every role)")
 	fmt.Println("  -proxy-verbose                  print proxy activity (default: silent)")
+	fmt.Println("  -proxy-safe-mode                pass tool I/O + code/tables through unreduced")
 	fmt.Println("  -upstream URL                   override the agent's upstream endpoint")
-	fmt.Println("\nExample: turo run -level ultra -proxy-verbose codex")
+	fmt.Println("\nExamples:")
+	fmt.Println("  turo -level ultra -proxy-verbose run codex")
+	fmt.Println("  turo -proxy-safe-mode run claude --dangerously-skip-permissions")
+	fmt.Println("  turo run claude --model sonnet -p \"review this PR\"")
 }
 
 // runExitCode extracts an agent's exit code from a cmd.Run error, defaulting to
