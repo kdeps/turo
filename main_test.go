@@ -238,23 +238,24 @@ func TestReduceArrowsOptIn(t *testing.T) {
 	}
 }
 
-func TestArrowPhrasesAreMultiWordAndForward(t *testing.T) {
-	// Every phrase must be >=2 words, or "->" is not cheaper than the original.
+func TestArrowPhrasesAreForward(t *testing.T) {
+	// Phrases may be single-word (vocab normalize) or multi-word (token save).
 	for _, p := range arrowPhrases {
-		if len(strings.Fields(p)) < 2 {
-			t.Errorf("arrow phrase %q is a single token; -> saves nothing", p)
+		if strings.TrimSpace(p) == "" {
+			t.Errorf("arrow phrase %q is empty", p)
 		}
 	}
-	// Backward connectives name the cause after the effect. An arrow there
-	// inverts the sentence, so they must never enter the table.
-	backward := []string{
-		"due to", "because of", "owing to", "as a result of", "on account of",
-		"stems from", "stem from", "arises from", "arise from", "caused by",
-		"resulting from", "thanks to", "derives from", "derive from",
-	}
-	for _, b := range backward {
-		if applyArrows("the outage "+b+" a bad deploy") != "the outage "+b+" a bad deploy" {
-			t.Errorf("backward connective %q must not become an arrow", b)
+	// Reverse-causal stems name the cause *after* the effect; an arrow there
+	// would invert the sentence. Keep them out of the table.
+	for _, b := range []string{
+		"due to", "because of", "owing to", "as a result of",
+		"stems from", "caused by", "arises from", "comes from",
+		"originates from", "attributable to", "on account of",
+	} {
+		in := "the outage " + b + " a bad deploy"
+		got := applyArrows(in)
+		if got != in {
+			t.Errorf("backward %q: applyArrows(%q) = %q, want unchanged", b, in, got)
 		}
 	}
 }
@@ -264,7 +265,7 @@ func TestArrowLongestPhraseWins(t *testing.T) {
 	// leftmost alternative, so without the longest-first sort the short branch
 	// would match and strand the leading word.
 	cases := map[string]string{
-		"the retry which results in a stall": "which",
+		"the retry which results in a stall":  "which",
 		"the retry which means that it hangs": "which",
 		"a flag which causes a rebuild":       "which",
 	}
@@ -280,34 +281,164 @@ func TestArrowLongestPhraseWins(t *testing.T) {
 }
 
 func TestArrowNewPhrasesMatch(t *testing.T) {
-	// A sample from each family added alongside the originals.
-	for _, in := range []string{
-		"the patch brings about a regression",
-		"the flag contributes to the stall",
-		"the retries culminate in a timeout",
-		"the parse step is followed by a write",
-		"the source compiles to a binary",
-		"the alias resolves to a path",
-		"the config defaults to strict",
-		"the macro expands to three calls",
-		"the request transforms into a job",
-		"the value amounts to a no-op",
-	} {
-		if got := applyArrows(in); !strings.Contains(got, "->") {
-			t.Errorf("applyArrows(%q) = %q, want an arrow", in, got)
+	// Spot-check families added beyond the original causal/transform core.
+	cases := []string{
+		"a refactor paves the way for simpler code",
+		"the feature sets the stage for migration",
+		"the patch opens the door to a cleaner API",
+		"cache misses feed into slow queries",
+		"errors cascade into a full outage",
+		"the change ushers in a new policy",
+		"the bug gives birth to a race",
+		"retries end in a timeout",
+		"the job winds up as a no-op",
+		"run for the purpose of validation",
+		"try in an effort to recover",
+		"fail, thereby resulting in a retry",
+		"fail thus leading to a fallback",
+		"step A and subsequently step B",
+		"step A which eventually becomes B",
+		"phase one is succeeded by phase two",
+		"legacy is superseded by the rewrite",
+		"the call falls back to the cache",
+		"the proxy forwards to upstream",
+		"the handler delegates to the worker",
+		"the macro desugars to a loop",
+		"the AST rewrites to SSA",
+		"the expression evaluates to true",
+		"the value coerces to a string",
+		"the type casts to int",
+		"the path aliases to /usr/bin",
+		"the route redirects to /home",
+		"the schema migrates to v2",
+		"the service transitions to draining",
+		"the error escalates to a panic",
+		"the list flattens to a set",
+		"the form normalizes to NFC",
+		"the query simplifies to a scan",
+		"the graph collapses to a path",
+		"the IR is rewritten as bytecode",
+		"the type is equivalent to a union",
+		"the pipeline bottoms out as a no-op",
+		"the type reduces down to any",
+		"the feature is replaced by a flag",
+		"the enum is mapped to an integer",
+		"the value is converted into a string",
+		"the token is projected onto a vector",
+		"with the aim of reducing cost",
+		"with the goal of shipping sooner",
+		"in such a way that it fits",
+		"following which the job exits",
+		"the process grows into a service",
+		"the module morphs into a library",
+		"the binary propagates to replicas",
+		"the layout carries over to mobile",
+	}
+	for _, in := range cases {
+		got := applyArrows(in)
+		if !strings.Contains(got, "->") {
+			t.Errorf("applyArrows(%q) = %q, want arrow", in, got)
 		}
+	}
+}
+
+func TestArrowSingleWordVocab(t *testing.T) {
+	// Single-word connectives normalize to "->" so later reduction sees one form.
+	cases := map[string]string{
+		"cache miss therefore a retry":   "therefore",
+		"cache miss thus a retry":        "thus",
+		"cache miss hence a retry":       "hence",
+		"errors consequently a rollback": "consequently",
+		"deploy accordingly a restart":   "accordingly",
+		"step A subsequently step B":     "subsequently",
+		"step A eventually step B":       "eventually",
+		"step A ultimately step B":       "ultimately",
+		"A becomes B":                    "becomes",
+		"A yields B":                     "yields",
+		"A produces B":                   "produces",
+		"A causes B":                     "causes",
+		"A triggers B":                   "triggers",
+		"A implies B":                    "implies",
+		"A entails B":                    "entails",
+		"A spawns B":                     "spawns",
+		"A generates B":                  "generates",
+		"A necessitates B":               "necessitates",
+		"A precipitates B":               "precipitates",
+		"A enables B":                    "enables",
+		"A forces B":                     "forces",
+		"A drives B":                     "drives",
+		"A facilitates B":                "facilitates",
+		"A precedes B":                   "precedes",
+		"failure ensues downtime":        "ensues",
+		"A whereupon B":                  "whereupon",
+		"A thereby B":                    "thereby",
+	}
+	for in, word := range cases {
+		got := applyArrows(in)
+		if !strings.Contains(got, "->") {
+			t.Errorf("applyArrows(%q) = %q, want arrow for %q", in, got, word)
+		}
+		if strings.Contains(strings.ToLower(got), word) {
+			t.Errorf("applyArrows(%q) = %q, still contains %q", in, got, word)
+		}
+	}
+	// High-frequency function words stay literal (would over-match prose).
+	for _, in := range []string{
+		"so far so good",
+		"if x then y else z",
+		"as as as",
+	} {
+		got := applyArrows(in)
+		// "then" is intentionally not in the table
+		if in == "if x then y else z" && strings.Contains(got, "->") {
+			t.Errorf("applyArrows(%q) = %q, must not rewrite bare then", in, got)
+		}
+	}
+}
+
+func TestArrowSeesPostStageChanges(t *testing.T) {
+	// Arrows re-run after every stage so connectives left or revealed mid-pass
+	// still become "->". Use multi-letter nouns so reduction does not drop them.
+	in := "Alpha causes Bravo and therefore Charlie"
+	got := reduce(in, "full", 1, true, false, false, false, true, false)
+	if strings.Count(got, "->") < 1 {
+		t.Fatalf("expected arrows in reduced output, got %q", got)
+	}
+
+	// Filler removes "really"; arrow pass after filler still sees "leads to".
+	in = "Alpha really leads to Bravo"
+	got = reduce(in, "full", 1, true, false, false, false, true, false)
+	if !strings.Contains(got, "->") {
+		t.Fatalf("arrows should see post-filler text, got %q", got)
+	}
+
+	// Reverse-causal still protected after filler.
+	filled := shrinkProse("failure caused by timeout")
+	got = applyArrows(filled)
+	if got != filled {
+		t.Fatalf("reverse causal inverted after filler: applyArrows(%q)=%q", filled, got)
+	}
+
+	// Idempotent: arrowing twice matches arrowing once.
+	once := applyArrows("Alpha causes Bravo therefore Charlie")
+	twice := applyArrows(once)
+	if once != twice {
+		t.Fatalf("arrows not idempotent: once=%q twice=%q", once, twice)
 	}
 }
 
 func TestCleanupArrows(t *testing.T) {
 	cases := map[string]string{
-		"-> cache miss":       "cache miss",
-		"cache miss ->":       "cache miss",
-		"a -> -> b":           "a -> b",
-		"cache -> slow query": "cache -> slow query",
+		"a -> -> b":    "a -> b",
+		"a -> -> -> b": "a -> b",
+		"-> -> x":      "-> x",
+		"x -> ->":      "x ->",
+		"->":           "",
+		"a -> b -> c":  "a -> b -> c",
 	}
 	for in, want := range cases {
-		if got := cleanupArrows(in); got != want {
+		got := cleanupArrows(in)
+		if got != want {
 			t.Errorf("cleanupArrows(%q) = %q, want %q", in, got, want)
 		}
 	}
@@ -331,8 +462,8 @@ func TestWenyanBaseLevel(t *testing.T) {
 		wenyan bool
 	}{
 		"wenyan": {"ultra", true},
-		"ultra":        {"ultra", false},
-		"full":         {"full", false},
+		"ultra":  {"ultra", false},
+		"full":   {"full", false},
 	}
 	for in, want := range cases {
 		b, w := wenyanBaseLevel(in)

@@ -72,7 +72,7 @@ Flags:
 	flag.BoolVar(&synonyms, "synonyms", envDefaultOn("TURO_SYNONYMS"), "replace words with fewer-token synonyms (on; disable with -synonyms=false or TURO_SYNONYMS=off)")
 	flag.BoolVar(&gloss, "gloss", envDefaultOn("TURO_GLOSS"), "swap words for the shortest defining word in their dictionary definition (on; disable with -gloss=false or TURO_GLOSS=off)")
 	flag.BoolVar(&defmatch, "defmatch", envDefaultOn("TURO_DEFMATCH"), "replace a definition-like phrase with the word it defines (a person who writes professionally -> author) (on; disable with -defmatch=false or TURO_DEFMATCH=off)")
-	flag.BoolVar(&arrows, "arrows", envDefaultOn("TURO_ARROWS"), "replace multi-word causal/sequential connectives (leads to, results in, gives rise to) with -> (on; disable with -arrows=false or TURO_ARROWS=off)")
+	flag.BoolVar(&arrows, "arrows", envDefaultOn("TURO_ARROWS"), "replace causal/sequential/transformation connectives with -> (multi-word and single-word; re-run after every stage; disable with -arrows=false or TURO_ARROWS=off)")
 	flag.BoolVar(&markdown, "markdown", envDefaultOn("TURO_MARKDOWN"), "keep markdown/HTML structure (headings, lists, tables, fences, tags) and reduce only the prose inside it (on; disable with -markdown=false or TURO_MARKDOWN=off)")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	var installAll bool
@@ -225,9 +225,9 @@ func reduceFlat(text string, o reduceOpts, patterns []*regexp.Regexp) string {
 	base, wenyan := wenyanBaseLevel(o.level)
 	level := base
 
-	// Pull URLs, code, paths, and identifiers out before reducing — the
-	// pipeline shreds anything with non-letter characters — leaving numeric
-	// sentinels that ride through and are swapped back in place afterwards.
+	// Pull URLs, code paths and identifiers out before reducing — the
+	// pipeline shreds anything with non-letter characters — leave numeric
+	// camp; ride the swaps back into place afterwards.
 	stripped, literals := protectWith(text, patterns)
 
 	limit := o.passes
@@ -235,41 +235,52 @@ func reduceFlat(text string, o reduceOpts, patterns []*regexp.Regexp) string {
 		limit = maxConvergePasses
 	}
 	out := stripped
-	// Headwords defmatch produced, accumulated across passes so a later pass
-	// cannot blur what an earlier one resolved.
+	// Headwords defmatch produces accumulate across later passes so gloss
+	// cannot blur what was already resolved.
 	headwords := map[string]bool{}
+
+	// arrow re-runs after every mutating stage so connectives introduced or
+	// left bare by filler/defmatch/gloss/synonym/reduce still become "->".
+	// Longest-match + reverse-tail guards keep this idempotent and safe.
+	arrow := func(s string) string {
+		if !o.arrows {
+			return s
+		}
+		// cleanup after every apply so re-runs cannot stack "-> -> ->"
+		return cleanupArrows(applyArrows(s))
+	}
+
 	for i := 0; i < limit; i++ {
 		step := out
-		if o.arrows {
-			step = applyArrows(step) // stage 0: connective phrase -> "->" (before word swaps mangle it)
-		}
+		step = arrow(step)
 		if o.filler {
-			step = shrinkProse(step) // stage 1: delete filler/pleasantry/hedge words
+			step = arrow(shrinkProse(step)) // delete filler/pleasantry/hedge words
 		}
 		if o.defmatch {
-			// stage 2: definition-like phrase -> the word it defines. Runs ahead
-			// of the word swaps for the same reason arrows does — it matches on
-			// whole phrases, and gloss rewriting one keyword ("disorder") is
-			// enough to lose the match ("state of disorder and lawlessness" ->
-			// anarchy). Filler deletion only drops hedges, so it stays first and
-			// tightens the window.
-			step = applyDefMatchInto(step, headwords)
+			// Definition-like phrase -> the word it defines. Run ahead of
+			// gloss for the same reason as arrows — a match on the
+			// definition body would rewrite a keyword ("disorder") and
+			// lose the multi-word match ("state of disorder and lawlessness" ->
+			// anarchy). Something act drop two stay and
+			// draw the window.
+			step = arrow(applyDefMatchInto(step, headwords))
 		}
 		if o.gloss {
-			// stage 3: shortest defining-word swap. Ahead of synonyms because the
-			// two disagree on ~half the words they both can touch, and letting
-			// gloss pick first lands one token cheaper across a full README.
-			// Headwords defmatch produced stay out of reach either way.
-			step = swapWordsExcept(step, definitionGloss, headwords)
+			// Shortest defining-word from the
+			// dictionary. Fail-soft: touch letting
+			// picks land on a token-cheaper full README.
+			// Headwords defmatch produced reach either way.
+			step = arrow(swapWordsExcept(step, definitionGloss, headwords))
 		}
 		if o.synonyms {
-			// stage 4: token-cheaper synonym swap, minus anything defmatch just
-			// produced — re-swapping a fresh headword only walks the match back.
-			step = swapWordsExcept(step, shorterSynonym, headwords)
+			// Token-cheaper synonym pass just
+			// — re-swap would walk a fresh headword back.
+			step = arrow(swapWordsExcept(step, shorterSynonym, headwords))
 		}
-		step = parseToGraph(step, level) // stage 5: reduce to content words
+		step = parseToGraph(step, level) // content-word reduction
+		step = arrow(step)               // catch anything reduction left bare
 		if step == out {
-			break // fixpoint — further passes cannot help
+			break // fixpoint — later passes cannot help
 		}
 		out = step
 	}
@@ -278,14 +289,12 @@ func reduceFlat(text string, o reduceOpts, patterns []*regexp.Regexp) string {
 		out = cleanupArrows(out) // collapse dangling/repeated arrows left by dedup
 	}
 	if wenyan {
-		out = applyWenyan(out) // swap reduced English words for 文言 chars
+		out = applyWenyan(out) // 文言 chars
 	}
 
 	return restoreLiterals(out, literals)
 }
 
-// wenyanBaseLevel maps a wenyan level to its base reduction level and reports
-// whether the 文言 swap should run. Non-wenyan levels pass through unchanged.
 func wenyanBaseLevel(level string) (base string, wenyan bool) {
 	if level == "wenyan" {
 		return "ultra", true
@@ -352,55 +361,468 @@ func shortenSynonyms(text string) string { return swapWords(text, shorterSynonym
 // it is the lossiest stage; disable via -gloss=false / TURO_GLOSS=off.
 func applyGloss(text string) string { return swapWords(text, definitionGloss) }
 
-// arrowPhrases are multi-word causal/sequential/transformation connectives that
-// a single "->" token expresses. Every entry is two or more words (>=2 tokens),
-// so the swap always saves at least one token — single-token connectives
-// (then, thus, becomes) are excluded because "->" costs the same.
+// arrowPhrases are causal/sequential/transformation connectives replaced
+// with "->". Multi-word entries always save tokens; single-word entries
+// (therefore, thus, becomes, yields, ...) normalize vocabulary even when
+// the cl100k cost of "->" matches the word — the arrow then survives
+// reduction and composes across stages.
 //
-// Every entry must read left-to-right: the thing before the phrase produces or
-// precedes the thing after it. Backward connectives ("due to", "because of",
-// "owing to", "as a result of", "stems from") are deliberately absent — they
-// name the cause *after* the effect, so an arrow there points the wrong way and
-// silently inverts the sentence.
+// Direction constraint: every phrase must read left-to-right as
+// cause/source -> effect/target. Reverse connectives ("due to", "because of",
+// "owing to", "as a result of", "stems from") name the cause *after* the
+// effect, so an arrow there points the wrong way and invert the sentence —
+// they stay out of the table.
 //
-// Order does not matter; buildArrowRegex sorts longest-first so the longest
-// matching phrase always wins over a shorter one it contains.
+// Order does not matter here: buildArrowRegex sorts longest-first so the
+// longest matching phrase always wins over a shorter one it contains.
 //
 //nolint:gochecknoglobals // static phrase table for the arrow regex
 var arrowPhrases = []string{
 	// causal
-	"gives rise to", "give rise to", "gave rise to", "giving rise to",
-	"brings about", "bring about", "brought about", "bringing about",
-	"contributes to", "contribute to", "contributed to", "contributing to",
-	"culminates in", "culminate in", "culminated in", "culminating in",
-	"which results in", "which produces", "which yields", "which gives",
-	"which causes", "which cause", "which caused",
-	"with the result that", "which in turn", "and therefore", "and thus",
-	"and hence", "which means that", "which means", "meaning that",
-	"resulting in", "results in", "result in", "resulted in",
-	"leading to", "leads to", "lead to", "led to",
+	"gives rise to",
+	"give rise to",
+	"gave rise to",
+	"giving rise to",
+	"brings about",
+	"bring about",
+	"brought about",
+	"bringing about",
+	"contributes to",
+	"contribute to",
+	"contributed to",
+	"contributing to",
+	"culminates in",
+	"culminate in",
+	"culminated in",
+	"culminating in",
+	"culminates with",
+	"culminate with",
+	"culminated with",
+	"which results in",
+	"which produces",
+	"which yields",
+	"which gives",
+	"which causes",
+	"which cause",
+	"which caused",
+	"with the result that",
+	"which in turn",
+	"and therefore",
+	"and thus",
+	"and hence",
+	"which means that",
+	"which means",
+	"meaning that",
+	"resulting in",
+	"results in",
+	"result in",
+	"resulted in",
+	"leading to",
+	"leads to",
+	"lead to",
+	"led to",
+	"paves the way for",
+	"pave the way for",
+	"paved the way for",
+	"paving the way for",
+	"sets the stage for",
+	"set the stage for",
+	"setting the stage for",
+	"opens the door to",
+	"open the door to",
+	"opened the door to",
+	"opening the door to",
+	"clears the way for",
+	"clear the way for",
+	"cleared the way for",
+	"makes way for",
+	"make way for",
+	"made way for",
+	"lays the groundwork for",
+	"lay the groundwork for",
+	"laid the groundwork for",
+	"gives birth to",
+	"give birth to",
+	"gave birth to",
+	"giving birth to",
+	"ushers in",
+	"usher in",
+	"ushered in",
+	"ushering in",
+	"brings on",
+	"bring on",
+	"brought on",
+	"bringing on",
+	"feeds into",
+	"feed into",
+	"fed into",
+	"feeding into",
+	"flows into",
+	"flow into",
+	"flowed into",
+	"flowing into",
+	"cascades into",
+	"cascade into",
+	"cascaded into",
+	"propagates to",
+	"propagate to",
+	"propagated to",
+	"propagating to",
+	"carries over to",
+	"carry over to",
+	"carried over to",
+	"ends in",
+	"end in",
+	"ended in",
+	"ending in",
+	"ends with",
+	"end with",
+	"ended with",
+	"ending with",
+	"winds up as",
+	"wind up as",
+	"wound up as",
+	"winds up in",
+	"wind up in",
+	"wound up in",
+	"concludes with",
+	"conclude with",
+	"concluded with",
+	"concluding with",
+	"concludes in",
+	"conclude in",
+	"concluded in",
+	"finishes as",
+	"finish as",
+	"finished as",
+	"gives way to",
+	"give way to",
+	"gives place to",
+	"give place to",
+	"gave place to",
 	// purpose
-	"in order to", "so as to", "so that", "such that",
+	"in order to",
+	"so as to",
+	"so that",
+	"such that",
+	"for the purpose of",
+	"with the aim of",
+	"with the goal of",
+	"with a view to",
+	"in an effort to",
+	"in an attempt to",
+	"in order that",
+	"with the effect that",
+	"with the consequence that",
+	"in such a way that",
+	"thereby leading to",
+	"thereby causing",
+	"thereby producing",
+	"thereby resulting in",
+	"thus leading to",
+	"thus causing",
+	"thus resulting in",
+	"therefore leading to",
 	// sequential
-	"followed by", "and then", "after which", "at which point",
-	// transformation
-	"translates to", "translate to", "translated to",
-	"transforms into", "transform into", "transformed into", "transforming into",
-	"evolves into", "evolve into", "evolved into", "evolving into",
-	"changes into", "change into", "changed into",
-	"converts to", "convert to", "converted to",
-	"turns into", "turn into", "turned into", "turning into",
-	"compiles to", "compile to", "compiled to",
-	"expands to", "expand to", "expanded to",
-	"resolves to", "resolve to", "resolved to",
-	"reduces to", "reduce to", "reduced to",
-	"renders as", "render as", "rendered as",
-	"corresponds to", "correspond to", "corresponding to",
-	"equates to", "equate to", "amounts to", "amount to",
-	"boils down to", "defaults to", "default to",
-	"gives way to", "give way to",
-	"maps to", "map to", "mapped to",
-	"points to", "point to",
+	"followed by",
+	"and then",
+	"after which",
+	"at which point",
+	"and subsequently",
+	"and eventually",
+	"and ultimately",
+	"and finally",
+	"which subsequently",
+	"which eventually",
+	"which ultimately",
+	"which finally",
+	"following which",
+	"subsequent to which",
+	"is succeeded by",
+	"is superseded by",
+	"is replaced by",
+	"is replaced with",
+	// transform / target
+	"translates to",
+	"translate to",
+	"translated to",
+	"translates into",
+	"translate into",
+	"translated into",
+	"transforms into",
+	"transform into",
+	"transformed into",
+	"transforming into",
+	"evolves into",
+	"evolve into",
+	"evolved into",
+	"evolving into",
+	"changes into",
+	"change into",
+	"changed into",
+	"converts to",
+	"convert to",
+	"converted to",
+	"turns into",
+	"turn into",
+	"turned into",
+	"turning into",
+	"morphs into",
+	"morph into",
+	"morphed into",
+	"develops into",
+	"develop into",
+	"developed into",
+	"grows into",
+	"grow into",
+	"grew into",
+	"degenerates into",
+	"degenerate into",
+	"degenerated into",
+	"compiles to",
+	"compile to",
+	"compiled to",
+	"expands to",
+	"expand to",
+	"expanded to",
+	"resolves to",
+	"resolve to",
+	"resolved to",
+	"reduces to",
+	"reduce to",
+	"reduced to",
+	"reduces down to",
+	"reduce down to",
+	"reduced down to",
+	"collapses to",
+	"collapse to",
+	"collapsed to",
+	"collapses into",
+	"collapse into",
+	"collapsed into",
+	"simplifies to",
+	"simplify to",
+	"simplified to",
+	"flattens to",
+	"flatten to",
+	"flattened to",
+	"normalizes to",
+	"normalize to",
+	"normalized to",
+	"coerces to",
+	"coerce to",
+	"coerced to",
+	"casts to",
+	"cast to",
+	"evaluates to",
+	"evaluate to",
+	"evaluated to",
+	"parses as",
+	"parse as",
+	"parsed as",
+	"encodes as",
+	"encode as",
+	"encoded as",
+	"encodes to",
+	"encode to",
+	"encoded to",
+	"decodes to",
+	"decode to",
+	"decoded to",
+	"desugars to",
+	"desugar to",
+	"desugared to",
+	"rewrites to",
+	"rewrite to",
+	"rewritten to",
+	"rewrites as",
+	"rewrite as",
+	"rewritten as",
+	"renders as",
+	"render as",
+	"rendered as",
+	"manifests as",
+	"manifest as",
+	"manifested as",
+	"presents as",
+	"present as",
+	"presented as",
+	"corresponds to",
+	"correspond to",
+	"corresponding to",
+	"equates to",
+	"equate to",
+	"amounts to",
+	"amount to",
+	"boils down to",
+	"bottoms out as",
+	"bottom out as",
+	"bottoms out at",
+	"bottom out at",
+	"defaults to",
+	"default to",
+	"aliases to",
+	"alias to",
+	"aliased to",
+	"redirects to",
+	"redirect to",
+	"redirected to",
+	"proxies to",
+	"proxy to",
+	"proxied to",
+	"forwards to",
+	"forward to",
+	"forwarded to",
+	"delegates to",
+	"delegate to",
+	"delegated to",
+	"falls back to",
+	"fall back to",
+	"fell back to",
+	"falling back to",
+	"falls through to",
+	"fall through to",
+	"escalates to",
+	"escalate to",
+	"escalated to",
+	"migrates to",
+	"migrate to",
+	"migrated to",
+	"transitions to",
+	"transition to",
+	"transitioned to",
+	"switches to",
+	"switch to",
+	"switched to",
+	"upgrades to",
+	"upgrade to",
+	"upgraded to",
+	"downgrades to",
+	"downgrade to",
+	"downgraded to",
+	"maps to",
+	"map to",
+	"mapped to",
+	"points to",
+	"point to",
+	"is rewritten as",
+	"is rewritten to",
+	"is expressed as",
+	"is equivalent to",
+	"is transformed into",
+	"is converted into",
+	"is converted to",
+	"is reduced to",
+	"is compiled into",
+	"is compiled to",
+	"is expanded into",
+	"is expanded to",
+	"is mapped to",
+	"is projected onto",
+	"is projected to",
+	// single-word (vocab normalize to ->)
+	"therefore",
+	"thus",
+	"hence",
+	"consequently",
+	"accordingly",
+	"ergo",
+	"thereafter",
+	"subsequently",
+	"eventually",
+	"ultimately",
+	"afterwards",
+	"afterward",
+	"whereupon",
+	"thereby",
+	"whereby",
+	"thence",
+	"becomes",
+	"became",
+	"becoming",
+	"yields",
+	"yielded",
+	"yielding",
+	"produces",
+	"produced",
+	"producing",
+	"cause",
+	"causes",
+	"caused",
+	"causing",
+	"triggers",
+	"triggered",
+	"triggering",
+	"prompts",
+	"prompted",
+	"prompting",
+	"induces",
+	"induced",
+	"inducing",
+	"implies",
+	"implied",
+	"implying",
+	"entails",
+	"entailed",
+	"entailing",
+	"necessitates",
+	"necessitated",
+	"necessitating",
+	"precipitates",
+	"precipitated",
+	"precipitating",
+	"spawns",
+	"spawned",
+	"spawning",
+	"generates",
+	"generated",
+	"generating",
+	"ensues",
+	"ensued",
+	"ensuing",
+	"precedes",
+	"preceded",
+	"preceding",
+	"enables",
+	"enabled",
+	"enabling",
+	"allows",
+	"allowed",
+	"allowing",
+	"permits",
+	"permitted",
+	"permitting",
+	"forces",
+	"forced",
+	"forcing",
+	"drives",
+	"drove",
+	"driven",
+	"driving",
+	"invites",
+	"invited",
+	"inviting",
+	"encourages",
+	"encouraged",
+	"encouraging",
+	"facilitates",
+	"facilitated",
+	"facilitating",
+	"catalyzes",
+	"catalyzed",
+	"catalyzing",
+	"catalyses",
+	"catalysed",
+	"catalysing",
+	"warrants",
+	"warranted",
+	"warranting",
+	"mandates",
+	"mandated",
+	"mandating",
+	"requires",
+	"required",
+	"requiring",
 }
 
 // reArrow matches any arrow phrase, case-insensitively, with word boundaries.
@@ -427,25 +849,94 @@ func buildArrowRegex() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)\b(?:` + strings.Join(parts, "|") + `)\b`)
 }
 
-// reDanglingArrows collapses two or more consecutive arrows (left when the term
-// between them is dropped or deduped) into one.
+// reDanglingArrows collapses adjacent arrow runs (left when the term between
+// them is dropped or when arrow re-runs stack "-> -> ->").
 //
 //nolint:gochecknoglobals // compiled once
 var reDanglingArrows = regexp.MustCompile(`(?:->\s*){2,}`)
 
-// applyArrows replaces multi-word connective phrases with "->". Opt-in via
-// -arrows / TURO_ARROWS. The arrow survives the reduction pass because
-// extractTermGraph passes "->" tokens through verbatim.
-func applyArrows(text string) string { return reArrow.ReplaceAllString(text, " -> ") }
+// reArrowDebris collapses arrows separated only by stopword/connective debris
+// ("-> and ->", "-> which ->") left after partial reduction. Without this,
+// triple-arrow artifacts survive until (or past) the final cleanup.
+//
+//nolint:gochecknoglobals // compiled once
+var reArrowDebris = regexp.MustCompile(`(?i)->(?:\s+(?:and|or|but|which|that|then|also|plus|thus|hence|therefore|so|yet|still|really|just))+\s*->`)
 
-// cleanupArrows removes dangling arrows: repeated runs collapse to one, and a
-// leading or trailing arrow (nothing on one side) is dropped.
+// reverseArrowTail matches a preposition that turns a forward verb into a
+// reverse-causal phrase ("caused by", "stems from", "driven by"). Single-word
+// table entries must not fire in that context or the arrow would invert.
+//
+//nolint:gochecknoglobals // compiled once
+var reverseArrowTail = regexp.MustCompile(`(?i)^\s+(by|from)\b`)
+
+// applyArrows replaces connective phrases (multi-word and single-word) with
+// "->". Opt-in via -arrows / TURO_ARROWS. The arrow survives the reduction
+// pass because extractTermGraph treats "->" as a keeper token.
+// Matches immediately followed by "by"/"from" are left alone so reverse
+// connectives ("caused by", "driven by", "arises from") are not inverted.
+func applyArrows(text string) string {
+	if text == "" {
+		return text
+	}
+	var b strings.Builder
+	b.Grow(len(text))
+	last := 0
+	for _, loc := range reArrow.FindAllStringIndex(text, -1) {
+		start, end := loc[0], loc[1]
+		if reverseArrowTail.MatchString(text[end:]) {
+			continue
+		}
+		b.WriteString(text[last:start])
+		b.WriteString("->")
+		last = end
+	}
+	b.WriteString(text[last:])
+	return b.String()
+}
+
+// cleanupArrows removes dangling arrows: repeated runs and stopword-only gaps
+// collapse to one "->", and a leading or trailing arrow (nothing on one side)
+// is dropped. Idempotent — safe to call after every applyArrows.
 func cleanupArrows(s string) string {
-	s = reDanglingArrows.ReplaceAllString(s, "-> ")
-	s = strings.TrimSpace(s)
-	s = strings.TrimSpace(strings.TrimPrefix(s, "->"))
-	s = strings.TrimSpace(strings.TrimSuffix(s, "->"))
-	return strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	// Collapse adjacent runs ("-> -> ->") and stopword-only gaps ("-> and ->").
+	// Loop to fixpoint so mixed debris settles in one call.
+	prev := ""
+	for s != prev {
+		prev = s
+		s = reDanglingArrows.ReplaceAllString(s, "-> ")
+		s = reArrowDebris.ReplaceAllString(s, "->")
+		s = strings.Join(strings.Fields(s), " ")
+	}
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return ""
+	}
+	// Drop pure-arrow junk with no content words on either side.
+	hasContent := false
+	for _, f := range fields {
+		if f != "->" {
+			hasContent = true
+			break
+		}
+	}
+	if !hasContent {
+		return ""
+	}
+	// Collapse any remaining consecutive arrows in the token list.
+	// Keep a single leading or trailing "->" when content remains — that is
+	// how verb-connectives like "defaults to X" / "compiles to Y" surface
+	// after the subject was the connective itself ("-> X").
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if f == "->" && len(out) > 0 && out[len(out)-1] == "->" {
+			continue
+		}
+		out = append(out, f)
+	}
+	return strings.Join(out, " ")
 }
 
 // swapWords replaces each alphabetic word with its mapping when the replacement
@@ -944,7 +1435,11 @@ func extractTermGraph(text string, level string) string {
 	seen := make(map[string]bool)
 	var out []string
 	for _, w := range fields {
-		if w == "->" { // arrow connective (from applyArrows): keep verbatim, never dedup
+		if w == "->" { // arrow connective (from applyArrows): keep verbatim
+			// collapse stacked arrows from mid-pass rewrites ("-> -> ->")
+			if len(out) > 0 && out[len(out)-1] == "->" {
+				continue
+			}
 			out = append(out, "->")
 			continue
 		}

@@ -6,59 +6,61 @@
   <strong>Point more. Token less.</strong>
 </p>
 
-A real instruction block — **138 tokens** (cl100k):
+A real instruction block — **150 tokens** (cl100k):
 
 ```
 When you are reviewing a pull request, please make sure that you carefully
 examine each of the changed files and verify that the new code does not
-introduce any regressions in the existing behavior. It is really important that
-you check whether the author has added appropriate tests for the new
-functionality, because untested code is very likely to break in subtle ways that
-are difficult to debug later. You should also confirm that the documentation has
-been updated to reflect the changes, and that the commit messages clearly
-explain what was changed and why. If you notice any potential security
-vulnerabilities, such as unsanitized user input or hardcoded credentials, you
-must flag them immediately and request changes before the pull request can be
-merged.
+introduce any regressions in the existing behavior. Missing tests lead to
+untested code which produces subtle breaks that are difficult to debug later,
+so check whether the author has added appropriate tests for the new
+functionality. Updated docs and clear commit messages result in easier review;
+confirm that the documentation has been updated to reflect the changes and that
+the commit messages explain what was changed and why. Security issues such as
+unsanitized user input or hardcoded credentials cause real risk, so you must
+flag them immediately — that request results in changes before the pull request
+can be merged.
 ```
 
-becomes **54 tokens — 61% fewer** (`turo`, meaning intact):
+becomes **48 tokens — 68% fewer** (`turo`, default `--level ultra`), with
+causal chains reduced to `->`:
 
 ```
-Reviewing pull request make examine changed files verify new code introduce
-regressions existing behavior important check author added appropriate tests
-functionality untested break subtle ways difficult debug later also confirm
-documentation updated reflect changes commit messages explain notice potential
-security vulnerabilities unsanitized user input hardcoded credentials must flag
-merged
+Review pull request make change file verify code bring act exist
+behavior miss test -> untested -> break debug later check author add
+updated docs commit message -> easier confirm documentation reflect
+security issue unsanitized user input hardcoded -> real risk must flag
+-> merge
 ```
 
-or **41 tokens — 70% fewer** at `--level ultra` (deduped by lemma):
+or **59 tokens — 61% fewer** at `--level full` (adjectives kept, no lemma collapse):
 
 ```
-Review pull request make examine change file verify code introduce regression
-exist behavior important check author add test untested break debug later
-confirm documentation updated reflect commit message notice security
-vulnerability unsanitized user input hardcoded must flag merge
+Reviewing pull request make changed files verify new code bring
+regressions existing behavior missing tests -> untested -> subtle
+breaks debug later check author added appropriate functionality
+updated docs clear commit messages -> easier review confirm
+documentation reflect changes explain security issues unsanitized user
+input hardcoded credentials -> real risk must flag -> merged
 ```
 
-Or **69 characters** with `--level wenyan`, which additionally swaps each
+or **121 characters** with `--level wenyan`, which additionally swaps each
 word for a single Classical Chinese character (for CJK-tokenizer models — see
 [wenyan](#wenyan-cjk-tokenizer-models-only)):
 
 ```
-閱引請作察變檔驗碼引退存為要查者增試 untested 破診後證文更映交訊覺安隙 unsanitized 戶入 hardcoded 須標併
+閱引請作變檔驗碼 bring act 存為 miss 試 -> untested -> 破診後查者增更 docs 交訊 -> easier 證文映安題 unsanitized 戶入 hardcoded -> real risk 須標 -> 併
 ```
 
-766 -> 69 characters (35 Han chars). Token counts for that output:
+775 → 121 characters (30 Han chars). Token counts for that output:
 
 | tokenizer | tokens |
 |-----------|--------|
-| Qwen / DeepSeek / GLM (~1 per Han char) | **~42** |
-| OpenAI cl100k (2-3 per Han char) | 67 |
+| Qwen / DeepSeek / GLM (~1 per Han char) | **~45** |
+| OpenAI cl100k (2–3 per Han char) | 77 |
 
-So wenyan **wins on CJK-tokenizer models** (~42 vs plain `ultra`'s ~71) but
-loses on OpenAI (67 vs 41) — use it only with CJK models. See below.
+So wenyan is competitive on CJK-tokenizer models (~45) but loses on OpenAI
+(77 vs ultra's 48) — use it only with CJK models. See below.
 
 No articles. No prepositions. No adverbs. No repeated words. Only the content
 words that carry meaning, deduplicated, in reading order. Every prompt, every
@@ -101,7 +103,7 @@ turo -filler=false                # skip filler deletion
 turo -synonyms=false              # skip the synonym pass (keep words verbatim)
 turo -gloss=false                 # skip the defining-word swap (less lossy)
 turo -defmatch=false              # keep definition-like phrases (skip the phrase -> headword swap)
-turo -arrows=false                # keep connective phrases verbatim (skip the -> swap)
+turo -arrows=false                # keep connectives verbatim (skip multi- and single-word -> swaps)
 turo gain                         # estimated tokens saved so far
 turo gain --history               # per-reduction history, newest first
 turo gain --json                  # same totals as JSON for scripts/dashboards
@@ -141,23 +143,50 @@ gloss-before-synonyms order in the cheapest tier, three tokens ahead of the
 inverse. Arrow and filler placement is free; only the two phrase-then-word
 constraints (defmatch before gloss, gloss before synonyms) cost anything.
 
-`-arrows` (on by default) replaces multi-word causal, sequential, and
-transformation connectives (`leads to`, `results in`, `gives rise to`,
-`which produces`, `brings about`, `culminates in`, `followed by`,
-`compiles to`, `resolves to`, `defaults to`) with a single `->` token. Only
-multi-word phrases qualify, so the swap always saves at least one token;
-single-token connectives (`then`, `becomes`, `thus`) are left alone because
-`->` costs the same. Disable with `-arrows=false` / `TURO_ARROWS=off`.
+`-arrows` (on by default) rewrites causal, sequential, and transformation
+connectives to a single `->` token the reducer keeps between surviving content
+words. The table is **440** entries:
 
-Every phrase in the table reads left to right — what precedes it produces or
-precedes what follows. Backward connectives (`due to`, `because of`, `stems
-from`, `caused by`) name the cause *after* the effect, so they are deliberately
-excluded: an arrow there would point the wrong way and invert the sentence.
+- **Multi-word** (338) always save tokens: `leads to`, `results in`,
+  `gives rise to`, `which produces`, `brings about`, `culminates in`,
+  `paves the way for`, `followed by`, `falls back to`, `compiles to`,
+  `evaluates to`, `desugars to`, `resolves to`, `defaults to`,
+  `is rewritten as`, …
+- **Single-word** (102) normalize vocabulary so later stages see one form:
+  `therefore`, `thus`, `hence`, `becomes`, `yields`, `triggers`, `implies`,
+  `spawns`, `generates`, `enables`, … Bare `so` / `then` stay literal (too
+  common to rewrite safely).
+
+Longest match wins. Reverse-causal phrases that name the cause *after* the
+effect (`due to`, `because of`, `stems from`, `caused by`, `driven by`) are
+excluded — and single-word verbs do not fire when followed by `by`/`from` —
+so an arrow never points the wrong way. Disable with `-arrows=false` /
+`TURO_ARROWS=off`.
 
 ```text
 A cache miss leads to a slow query which produces a timeout
-                     |  arrows (on by default)
-Cache miss -> slow query -> timeout
+  =>  Cache miss -> slow query -> timeout
+
+Timeout causes Retry and therefore Backoff
+  =>  Timeout -> Retry -> Backoff
+
+defaults to zero
+  =>  -> zero
+
+compiles to bytecode
+  =>  -> bytecode
+
+evaluates to true
+  =>  -> true
+
+the call falls back to the cache
+  =>  Call -> cache
+
+the macro desugars to a loop
+  =>  Macro -> loop
+
+the outage caused by a bad deploy
+  =>  Outage cause bad deploy
 ```
 
 ## Savings — `turo gain`
@@ -168,15 +197,18 @@ before/after token count to a JSONL log in your OS config dir
 override with `TURO_HOME`). `turo gain` totals it up; `turo gain --history` lists
 recent reductions newest-first.
 
+Counts of 1 000+ print with a magnitude suffix (`k` / `m` / `g` / `t`);
+smaller values stay plain integers.
+
 ```text
 turo gain — 42 reductions
-  tokens in     8140
-  tokens out    2610
-  tokens saved  5530 (67%)
+  tokens in     8.14k
+  tokens out    2.61k
+  tokens saved  5.53k (67%)
 
 by folder:
-  ~/Projects/turo        31 reductions  saved 4100 (69%)
-  ~/Projects/api          11 reductions  saved 1430 (61%)
+  ~/Projects/turo        31 reductions  saved 4.1k (69%)
+  ~/Projects/api          11 reductions  saved 1.43k (61%)
 ```
 
 Each event also records the working folder it ran in, so `turo gain` breaks the
@@ -202,16 +234,18 @@ tokenizer — treat them as a trend, not a bill.
 didn't: it scans your existing Claude Code history and estimates how many tokens
 turo would have saved had those sessions run through the proxy.
 
+Counts use the same `k` / `m` / `g` / `t` suffixes as `turo gain`.
+
 ```text
 turo discover — scanned 403 sessions in ~/.claude/projects
-  messages       53011 reducible (all roles)
-  tokens in      13524093
-  would be out   6246528
-  would save     7277565 (53%)
+  messages       53.01k reducible (all roles)
+  tokens in      13.52m
+  would be out   6.25m
+  would save     7.28m (53%)
 
 by project:
-  ~/Projects/api          29490 msgs  saved 3242664 (49%)
-  ~/Projects/web          19943 msgs  saved 3142015 (57%)
+  ~/Projects/api          29.49k msgs  saved 3.24m (49%)
+  ~/Projects/web          19.94k msgs  saved 3.14m (57%)
 
 these sessions ran without turo — capture the savings next time with:
   turo run claude
@@ -229,6 +263,10 @@ would actually do. Nothing is sent anywhere; the scan is local and read-only.
 broken — useful in CI, install scripts, or after an upgrade to confirm turo is
 wired up correctly.
 
+Event counts, session totals, and the self-test token figures use the same
+`k` / `m` / `g` / `t` magnitude suffixes as `turo gain` (values under 1 000 stay
+plain integers — e.g. `22 -> 5`).
+
 ```text
 turo doctor
 
@@ -241,10 +279,10 @@ environment
   · no turo env overrides set (using defaults)
 
 gain log
-  ✓ writable: ~/Library/Application Support/turo/gain.jsonl (135 events)
+  ✓ writable: ~/Library/Application Support/turo/gain.jsonl (3.03k events)
 
 claude history (turo discover source)
-  ✓ 414 session logs in ~/.claude/projects
+  ✓ 420 session logs in ~/.claude/projects
 
 pipeline self-test
   ✓ 22 -> 5 tokens (77% smaller) at level ultra
@@ -266,8 +304,8 @@ What it checks:
 |---------|-----------------|
 | **turo** | Version string, binary path, default level validity |
 | **environment** | Lists any `TURO_*` env overrides that are set |
-| **gain log** | Gain directory creatable, log file writable, event count |
-| **claude history** | Session logs found under `~/.claude/projects` |
+| **gain log** | Gain directory creatable, log file writable, event count (`N{k,m,g,t}`) |
+| **claude history** | Session logs found under `~/.claude/projects` (`N{k,m,g,t}`) |
 | **pipeline self-test** | Runs `reduce()` on a sample sentence, confirms token count decreased |
 | **agents** | Detects installed coding agents, checks skill installation for native agents |
 
@@ -281,16 +319,28 @@ turo -level bogus doctor  # invalid level -> exit 1
 
 ## Pipeline
 
-Every run is six stages, each on by default, phrase-level before word-level:
+Every run is six stages, each on by default, phrase-level before word-level.
+Stage separators below are `|` — the rewrite token `->` only appears inside stage 1.
 
 ```text
-text -> [1] connectives to -> -> [2] delete filler -> [3] phrase to headword -> [4] swap defining words -> [5] swap cheaper synonyms -> [6] reduce to content words
+text
+  | [1] arrow rewrite (connectives => ->)
+  | [2] delete filler
+  | [3] phrase to headword
+  | [4] swap defining words
+  | [5] swap cheaper synonyms
+  | [6] reduce to content words
+  | (stage 1 re-runs after each of 2–6 so new connectives still become ->)
 ```
 
-1. **Arrows** rewrites multi-word causal/sequential connective phrases (`leads
-   to`, `results in`) to `->`, which the reducer keeps verbatim between the
-   surviving content words. Runs first, before word swaps can mangle the
-   phrase. Disable with `-arrows=false` / `TURO_ARROWS=off`.
+1. **Arrow rewrite** replaces causal/sequential/transformation connectives
+   (multi-word *and* single-word: `leads to`, `therefore`, `becomes`,
+   `falls back to`, …) with a single `->` token. It runs at the start of each
+   pass **and again after stages 2–6**, so connectives those stages reveal still
+   become arrows; adjacent `->` runs and stopword-only gaps (`-> and ->`) are
+   collapsed so you never get `-> -> ->` artifacts. Reverse-causal phrases
+   (`caused by`, `due to`) stay put. Disable with `-arrows=false` /
+   `TURO_ARROWS=off`.
 2. **Filler deletion** removes pleasantries, hedges, and leaders that survive
    word-level stopword lists (`please`, `I think`, `of course`, `let me`),
    while protecting code, paths, URLs, and identifiers verbatim. Disable with
@@ -313,11 +363,12 @@ The whole pipeline repeats until the output stops changing (`-passes 0`, the
 default; a positive `-passes N` caps the count). The first pass keeps document
 structure (headings, per-section bodies); later passes flatten that and dedupe
 across it, so large structured docs keep shrinking before converging — this
-README goes 522 (1 pass) -> 376 tokens (converged, ~29 passes). Set `-passes 1`
-to keep it single-shot.
+README goes ~4.9k (1 pass) → ~4.83k tokens (converged, estimateTokens). Set
+`-passes 1` to keep it single-shot.
 
 turo never emits output larger than the input: if a stage does not save tokens,
 the text passes through unchanged.
+
 
 ### Synonym substitution (on by default, lossy)
 
@@ -338,11 +389,11 @@ tokenizer.
 
 ## Intensity levels
 
-| Level | What it keeps | Reduction |
-|-------|--------------|-----------|
-| **lite** | Adjectives, nouns, verbs, and leftover adverbs/prepositions | ~65% |
-| **full** | Adjectives, nouns, verbs | ~70% |
-| **ultra** (default) | Nouns and verbs only, deduplicated by lemma (base form) | ~70%+ |
+| Level | What it keeps | Reduction (demo block) |
+|-------|--------------|------------------------|
+| **lite** | Adjectives, nouns, verbs, and leftover adverbs/prepositions | ~58% (63 tok) |
+| **full** | Adjectives, nouns, verbs | ~61% (59 tok) |
+| **ultra** (default) | Nouns and verbs only, deduplicated by lemma (base form) | ~68% (48 tok) |
 | **wenyan** | ultra, then swap surviving words for a single 文言 (Classical Chinese) character | CJK models only |
 
 ```bash
@@ -356,21 +407,21 @@ echo "the wise king studies the old book" | turo --level wenyan    # 智王學�
 
 `wenyan` reduces at ultra, then swaps each surviving English content word
 for one Classical Chinese character (`water` -> `水`, `king` -> `王`, `verify` ->
-`驗`) from a ~380-entry hand-curated lexicon. One char per concept, no spaces
+`驗`) from a ~480-entry hand-curated lexicon. One char per concept, no spaces
 (Classical Chinese has none).
 
 Two examples, measured:
 
 | input | ultra | wenyan | chars | cl100k | CJK-model (~1/char) |
 |-------|-------|--------------|-------|--------|----------------------|
-| `The wise king uses water and fire...` (80 ch) | `Wise king use water fire person see mountain old tree` | `智王用水火人見山舊樹` | **10** | 15 | **~10** |
-| the PR-review paragraph (766 ch) | 283 ch / 41 tok | `閱引請作察變檔驗碼引退存為要查者增試 untested 破診後證文更映交訊覺安隙 unsanitized 戶入 hardcoded 須標併` | **69** | 67 | **~42** |
+| `The wise king uses water and fire so the person can see the hill and the old tree` (81 ch / 18 tok) | `Wise king use water fire person see hill old tree` (49 ch / 11 tok) | `智王用水火人見 hill 舊樹` | **15** | 16 | **~10** |
+| the PR-review paragraph (775 ch / 150 tok) | 281 ch / 48 tok | `閱引請作變檔驗碼 bring act 存為 miss 試 -> untested -> 破診後查者增更 docs 交訊 -> easier 證文映安題 unsanitized 戶入 hardcoded -> real risk 須標 -> 併` | **121** | 77 | **~45** |
 
-It collapses to the fewest **characters** (766 -> 69 on the paragraph). A CJK
-character is 2-3 tokens on OpenAI's cl100k, so `wenyan` is *larger* there
-(67 > 41). **It only wins on CJK-optimized tokenizers** (Qwen, DeepSeek, GLM),
-where a common character is ~1 token — then those 69 chars are ~42 tokens vs
-plain ultra's 71. Don't use it with OpenAI models.
+It collapses to the fewest **characters** (775 → 121 on the paragraph). A CJK
+character is 2–3 tokens on OpenAI's cl100k, so `wenyan` is *larger* there
+(77 > 48). **Use it only on CJK-optimized tokenizers** (Qwen, DeepSeek, GLM),
+where a common character is ~1 token — then those 121 chars are ~45 tokens
+(competitive with ultra). Don't use it with OpenAI models.
 
 turo's own token estimator counts CJK as 1 rune = 1 token (matching those
 models), so it treats `wenyan` as a reduction and never rejects it. Words
@@ -517,8 +568,8 @@ Same input, measured with the cl100k tokenizer:
 |--|--------|--------|
 | input | `Please, I think you should really just utilize this approach to demonstrate the functionality of the component.` | 19 |
 | caveman | `You should utilize this approach to demonstrate functionality of component.` | 11 |
-| turo full | `Use come show functionality component` | 5 |
-| turo ultra | `Use come show component` | 4 |
+| turo full | `Come show functionality component` | 4 |
+| turo ultra | `Come show component` | 3 |
 
 |  | caveman | turo |
 |--|---------|------|

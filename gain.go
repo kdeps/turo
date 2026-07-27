@@ -295,9 +295,10 @@ func printJSON(v any) {
 }
 
 // humanCount abbreviates a count with a magnitude suffix — 1234 -> "1.23k",
-// 13524093 -> "13.52m", 1660000000000 -> "1.66t" — so the big token totals
-// read at a glance. Values under 1000 print as plain integers. Up to two
-// decimals, trailing zeros trimmed (1200 -> "1.2k", 100000000 -> "100m").
+// 13524093 -> "13.52m", 1.2e9 -> "1.2g", 1.66e12 -> "1.66t" — so the big
+// token totals read at a glance. Suffixes are k/m/g/t (10^3…10^12). Values
+// under 1000 print as plain integers. Up to two decimals, trailing zeros
+// trimmed (1200 -> "1.2k", 100000000 -> "100m").
 func humanCount(n int) string {
 	abs := n
 	if abs < 0 {
@@ -307,7 +308,7 @@ func humanCount(n int) string {
 	case abs >= 1e12:
 		return trimDecimals(float64(n)/1e12) + "t"
 	case abs >= 1e9:
-		return trimDecimals(float64(n)/1e9) + "b"
+		return trimDecimals(float64(n)/1e9) + "g"
 	case abs >= 1e6:
 		return trimDecimals(float64(n)/1e6) + "m"
 	case abs >= 1e3:

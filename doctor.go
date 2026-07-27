@@ -78,14 +78,14 @@ func showDoctor(cfg proxyConfig) {
 	} else {
 		_ = f.Close()
 		n := len(readGain())
-		d.ok("writable: %s (%d events)", shortDir(gp), n)
+		d.ok("writable: %s (%s events)", shortDir(gp), humanCount(n))
 	}
 
 	d.section("claude history (turo discover source)")
 	hd := claudeProjectsDir()
 	logs := findSessionLogs(hd)
 	if len(logs) > 0 {
-		d.ok("%d session logs in %s", len(logs), shortDir(hd))
+		d.ok("%s session logs in %s", humanCount(len(logs)), shortDir(hd))
 	} else {
 		d.info("no history under %s (set CLAUDE_CONFIG_DIR if it lives elsewhere)", shortDir(hd))
 	}
@@ -95,9 +95,9 @@ func showDoctor(cfg proxyConfig) {
 	out := reduce(sample, cfg.level, 0, cfg.filler, cfg.synonyms, cfg.gloss, cfg.defmatch, cfg.arrows, cfg.markdown)
 	bt, at := estimateTokens(sample), estimateTokens(out)
 	if at < bt {
-		d.ok("%d -> %d tokens (%s smaller) at level %s", bt, at, pct(bt-at, bt), cfg.level)
+		d.ok("%s -> %s tokens (%s smaller) at level %s", humanCount(bt), humanCount(at), pct(bt-at, bt), cfg.level)
 	} else {
-		d.fail("sample did not reduce (%d -> %d) — pipeline may be misconfigured", bt, at)
+		d.fail("sample did not reduce (%s -> %s) — pipeline may be misconfigured", humanCount(bt), humanCount(at))
 	}
 
 	d.section("agents")
